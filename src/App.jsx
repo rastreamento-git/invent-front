@@ -4,8 +4,7 @@ import { LayoutDashboard, PackagePlus, Truck, Settings, AlertTriangle, Wrench, C
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 
-const api = axios.create({ baseURL: 'http://localhost:3000/api' });
-
+const api = axios.create({ baseURL: 'https://estoque-api-7l82.onrender.com/api' });
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [produtos, setProdutos] = useState([]);
