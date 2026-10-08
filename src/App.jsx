@@ -34,24 +34,62 @@ export default function App() {
     fetchData();
   }, []);
 
+  // ==========================================
+  // LÓGICA INTELIGENTE DE AGREGAÇÃO POR CATEGORIA
+  // ==========================================
+  
+  // 1. Matriz: Soma as quantidades por Categoria
+  const categoriasMatriz = {};
+  produtos.forEach(p => {
+    const cat = p.categoria || 'RASTREADOR';
+    if (!categoriasMatriz[cat]) categoriasMatriz[cat] = { quantidade: 0, minimo: p.estoque_minimo };
+    categoriasMatriz[cat].quantidade += Number(p.quantidade_matriz);
+    categoriasMatriz[cat].minimo = Math.max(categoriasMatriz[cat].minimo, p.estoque_minimo);
+  });
+
+  const alertasMatriz = Object.keys(categoriasMatriz)
+    .filter(cat => categoriasMatriz[cat].quantidade <= categoriasMatriz[cat].minimo)
+    .map(cat => ({ categoria: cat, quantidade: categoriasMatriz[cat].quantidade, minimo: categoriasMatriz[cat].minimo }));
+
+  // 2. Técnicos: Soma as quantidades na posse do técnico por Categoria
+  const categoriasTecnicos = {};
+  estoqueTecnicos.forEach(et => {
+    const cat = et.categoria || 'RASTREADOR';
+    const key = `${et.tecnico_id}-${cat}`;
+    if (!categoriasTecnicos[key]) {
+      categoriasTecnicos[key] = {
+        tecnico_id: et.tecnico_id,
+        tecnico_nome: et.tecnico_nome,
+        categoria: cat,
+        quantidade: 0,
+        minimo: et.estoque_minimo // O mínimo do técnico vem da tabela de técnicos
+      };
+    }
+    categoriasTecnicos[key].quantidade += Number(et.quantidade);
+  });
+
+  const alertasTecnicos = Object.values(categoriasTecnicos)
+    .filter(ct => ct.quantidade <= ct.minimo && ct.quantidade > 0);
+
+  // 3. Dispara notificações agregadas
   useEffect(() => {
     if (Notification.permission === "granted") {
-      produtos.forEach(p => {
-        const key = `matriz-${p.id}-${p.quantidade_matriz}`;
-        if (p.quantidade_matriz <= p.estoque_minimo && !notificadoRef.current.has(key)) {
-          new Notification("Alerta de Estoque: Matriz", { body: `${p.nome} está com saldo baixo (${p.quantidade_matriz}).` });
+      alertasMatriz.forEach(a => {
+        const key = `matriz-${a.categoria}-${a.quantidade}`;
+        if (!notificadoRef.current.has(key)) {
+          new Notification("Alerta Matriz (Categoria)", { body: `Atenção: A categoria ${a.categoria} está com saldo baixo (${a.quantidade} restantes no total).` });
           notificadoRef.current.add(key);
         }
       });
-      estoqueTecnicos.forEach(et => {
-        const key = `tec-${et.tecnico_id}-${et.produto_id}-${et.quantidade}`;
-        if (et.quantidade <= et.estoque_minimo && !notificadoRef.current.has(key)) {
-          new Notification("Alerta de Estoque: Técnico", { body: `O técnico ${et.tecnico_nome} está com poucas unidades de ${et.produto_nome} (${et.quantidade}).` });
+      alertasTecnicos.forEach(a => {
+        const key = `tec-${a.tecnico_id}-${a.categoria}-${a.quantidade}`;
+        if (!notificadoRef.current.has(key)) {
+          new Notification("Alerta Técnico", { body: `O técnico ${a.tecnico_nome} tem poucas unidades de ${a.categoria} (${a.quantidade} restantes).` });
           notificadoRef.current.add(key);
         }
       });
     }
-  }, [produtos, estoqueTecnicos]);
+  }, [produtos, estoqueTecnicos]); // Atualiza as notificações apenas quando os dados base mudam
 
   useEffect(() => {
     let buffer = '';
@@ -79,9 +117,6 @@ export default function App() {
     setActiveTab(tab);
     setMenuAberto(false);
   };
-
-  const alertasMatriz = produtos.filter(p => p.quantidade_matriz <= p.estoque_minimo);
-  const alertasTecnicos = estoqueTecnicos.filter(et => et.quantidade <= et.estoque_minimo);
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -113,7 +148,6 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col h-full w-full overflow-hidden relative">
-        {/* HEADER BARRA TOPO MOBILE */}
         <header className="lg:hidden bg-slate-900 text-white p-4 flex items-center shadow-md">
           <button onClick={() => setMenuAberto(true)} className="mr-4 focus:outline-none">
             <Menu size={28} />
@@ -122,12 +156,14 @@ export default function App() {
         </header>
 
         <div className="flex-1 p-4 md:p-8 overflow-y-auto pb-24">
+          
+          {/* BANNER DE ALERTA AGREGADO POR CATEGORIA */}
           {(alertasMatriz.length > 0 || alertasTecnicos.length > 0) && (
             <div className="mb-8 bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
               <div className="flex items-center text-red-800 font-bold mb-2"><AlertTriangle className="mr-2" /> Atenção: Níveis Críticos de Estoque</div>
               <ul className="ml-8 text-red-700 list-disc text-sm space-y-1">
-                {alertasMatriz.map(a => <li key={`m-${a.id}`}><strong>Matriz:</strong> [{a.categoria}] {a.nome} (Restam {a.quantidade_matriz})</li>)}
-                {alertasTecnicos.map(a => <li key={`t-${a.tecnico_id}-${a.produto_id}`}><strong>{a.tecnico_nome}:</strong> {a.produto_nome} (Restam {a.quantidade})</li>)}
+                {alertasMatriz.map(a => <li key={`m-${a.categoria}`}><strong>Matriz ({a.categoria}):</strong> Restam apenas {a.quantidade} no total (Mínimo configurado: {a.minimo})</li>)}
+                {alertasTecnicos.map(a => <li key={`t-${a.tecnico_id}-${a.categoria}`}><strong>{a.tecnico_nome} ({a.categoria}):</strong> Restam apenas {a.quantidade} em posse (Mínimo: {a.minimo})</li>)}
               </ul>
             </div>
           )}
@@ -173,10 +209,8 @@ function LeitorSeriais({ seriais, setSeriais }) {
   const adicionarSerial = (codigo) => {
     const formatado = codigo.trim();
     if (!formatado || seriais.includes(formatado)) return;
-    
     const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3');
     audio.play().catch(() => {});
-    
     setSeriais(prev => [formatado, ...prev]);
     setInputManual('');
   };
@@ -201,27 +235,20 @@ function LeitorSeriais({ seriais, setSeriais }) {
   return (
     <div className="pt-4 border-t flex flex-col gap-3">
       <div id="file-reader-hidden" style={{ display: 'none' }}></div>
-
       <div className="flex flex-col md:flex-row gap-3">
         {!cameraAtiva ? (
-          <button type="button" onClick={() => setCameraAtiva(true)} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl flex justify-center items-center transition">
-            <Camera className="mr-2" /> Câmera ao Vivo
-          </button>
+          <button type="button" onClick={() => setCameraAtiva(true)} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl flex justify-center items-center transition"><Camera className="mr-2" /> Câmera ao Vivo</button>
         ) : (
           <div className="w-full mb-2">
-            <button type="button" onClick={() => setCameraAtiva(false)} className="mb-2 text-red-500 font-bold flex items-center justify-center w-full bg-red-50 p-2 rounded-lg">
-              <X size={20} className="mr-1"/> Fechar Câmera
-            </button>
+            <button type="button" onClick={() => setCameraAtiva(false)} className="mb-2 text-red-500 font-bold flex items-center justify-center w-full bg-red-50 p-2 rounded-lg"><X size={20} className="mr-1"/> Fechar Câmera</button>
             <div id="reader-camera" className="w-full overflow-hidden rounded-xl border-2 border-dashed border-blue-400"></div>
           </div>
         )}
-
         <label className={`flex-1 ${processandoFoto ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'} text-white font-bold py-4 rounded-xl flex justify-center items-center transition shadow-sm`}>
           {processandoFoto ? 'Analisando...' : <><ImagePlus className="mr-2" /> Enviar Fotos (Lote)</>}
           <input type="file" accept="image/*" multiple className="hidden" onChange={handleUploadFotos} disabled={processandoFoto} />
         </label>
       </div>
-
       <div className="pt-2 flex gap-2">
         <input type="text" placeholder="Ou digite o IMEI/QR Code..." className="flex-1 p-4 border border-gray-300 rounded-xl bg-gray-50 text-lg" value={inputManual} onChange={e => setInputManual(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionarSerial(inputManual))} />
         <button type="button" onClick={() => adicionarSerial(inputManual)} className="bg-slate-200 text-slate-700 p-4 rounded-xl hover:bg-slate-300 font-bold"><Plus size={24}/></button>
@@ -235,11 +262,8 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col h-fit">
       <h3 className="text-xl font-bold text-gray-800 mb-2">Itens Prontos ({seriais.length})</h3>
       <p className="text-sm text-gray-500 mb-4">Confira os números antes de concluir.</p>
-      
       <div className="flex-1 overflow-y-auto bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 max-h-[350px] min-h-[200px]">
-        {seriais.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-slate-400 italic">Vazio.</div>
-        ) : (
+        {seriais.length === 0 ? (<div className="h-full flex items-center justify-center text-slate-400 italic">Vazio.</div>) : (
           <ul className="space-y-2">
             {seriais.map((codigo, index) => (
               <li key={codigo} className="bg-white p-3 rounded-lg shadow-sm border border-slate-100 flex justify-between items-center font-mono text-sm break-all">
@@ -250,32 +274,35 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
           </ul>
         )}
       </div>
-      <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none' : corBtn}`}>
-        {labelBtn}
-      </button>
+      <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none' : corBtn}`}>{labelBtn}</button>
     </div>
   );
 }
 
+// ==========================================
+// TELA DE EQUIPAMENTOS (Sem pedir o Alerta Mínimo)
+// ==========================================
 function TelaEquipamentos({ produtos, reload }) {
   const [nome, setNome] = useState('');
   const [categoria, setCategoria] = useState('RASTREADOR');
-  const [estoqueMinimo, setEstoqueMinimo] = useState(5);
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/produtos', { nome, categoria, estoque_minimo: estoqueMinimo });
+      // Procura se já existe algum item dessa categoria para herdar a regra de mínimo
+      const catExistente = produtos.find(p => p.categoria === categoria);
+      const minSugerido = catExistente ? catExistente.estoque_minimo : 5;
+
+      await api.post('/produtos', { nome, categoria, estoque_minimo: minSugerido });
       alert('Equipamento cadastrado com sucesso!');
-      setNome(''); setEstoqueMinimo(5); reload();
+      setNome(''); reload();
     } catch (err) { alert('Erro ao cadastrar equipamento.'); }
   };
   
   const removerEquipamento = async (id, nomeEquip) => {
-    if (window.confirm(`Tem certeza que deseja remover ${nomeEquip}?`)) { 
-      try { 
-        await api.delete(`/produtos/${id}`); alert('Removido com sucesso!'); reload(); 
-      } catch (err) { alert(err.response?.data?.error || 'Erro ao remover equipamento.'); } 
+    if (window.confirm(`Tem certeza que deseja remover o modelo ${nomeEquip}?`)) { 
+      try { await api.delete(`/produtos/${id}`); alert('Removido com sucesso!'); reload(); } 
+      catch (err) { alert(err.response?.data?.error || 'Erro ao remover equipamento.'); } 
     }
   };
 
@@ -284,31 +311,26 @@ function TelaEquipamentos({ produtos, reload }) {
       <div className="w-full lg:w-1/3 bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit">
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Box className="mr-2"/> Novo Modelo</h2>
         <form onSubmit={submit} className="space-y-4">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome do Modelo</label><input required className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={nome} onChange={e => setNome(e.target.value)} /></div>
-          
-          {/* APENAS AS DUAS CATEGORIAS AQUI */}
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome do Modelo</label><input required placeholder="Ex: NT40" className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={nome} onChange={e => setNome(e.target.value)} /></div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Categoria do Aparelho</label>
             <select className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50 font-bold text-blue-800" value={categoria} onChange={e => setCategoria(e.target.value)}>
               <option value="RASTREADOR">Rastreador</option>
               <option value="TAG">Tag</option>
             </select>
           </div>
-
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Alerta de Estoque Mínimo</label><input required type="number" min="0" className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={estoqueMinimo} onChange={e => setEstoqueMinimo(Number(e.target.value))} /></div>
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl mt-2">Cadastrar Modelo</button>
         </form>
       </div>
       <div className="flex-1 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-800 mb-6">Modelos no Sistema</h2>
+        <h2 className="text-xl font-bold text-gray-800 mb-6">Lista de Modelos Registrados</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left whitespace-nowrap">
-            <thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Modelo</th><th className="p-4 border-b text-center">Alerta Mínimo</th><th className="p-4 border-b text-center">Ações</th></tr></thead>
+            <thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead>
             <tbody>{produtos.map(p => (
               <tr key={p.id} className="border-b text-sm hover:bg-gray-50">
                 <td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td>
                 <td className="p-4 font-medium">{p.nome}</td>
-                <td className="p-4 text-center text-red-500 font-bold">{p.estoque_minimo}</td>
                 <td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td>
               </tr>
             ))}</tbody>
@@ -320,13 +342,12 @@ function TelaEquipamentos({ produtos, reload }) {
 }
 
 function TelaEntrada({ produtos, reload }) {
-  const [produtoId, setProdutoId] = useState('');
-  const [seriais, setSeriais] = useState([]);
+  const [produtoId, setProdutoId] = useState(''); const [seriais, setSeriais] = useState([]);
   const submit = async (e) => { e.preventDefault(); try { await api.post('/entrada', { produto_id: produtoId, seriais }); alert(`${seriais.length} registrados!`); setSeriais([]); setProdutoId(''); reload(); } catch (err) { alert('Erro.'); } };
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><PackagePlus className="mr-2"/> Entrada (Matriz)</h2>
-        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Equipamento correspondente:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria || 'EQUIP'}] {p.nome}</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Qual modelo chegou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria || 'EQUIP'}] {p.nome}</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || seriais.length === 0} labelBtn="Confirmar Entrada" corBtn="bg-emerald-600" />
     </div>
@@ -339,7 +360,7 @@ function TelaTransferencia({ produtos, tecnicos, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Truck className="mr-2"/> Transferir para Técnico</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Equipamento:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome} (Disp: {p.quantidade_matriz})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele vai levar?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome} (Disp: {p.quantidade_matriz})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Executar Transferência" corBtn="bg-blue-600" />
     </div>
@@ -353,7 +374,7 @@ function TelaInstalacao({ produtos, tecnicos, estoque, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Wrench className="mr-2"/> Registrar Instalação</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Equipamento:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele instalou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Confirmar Instalação" corBtn="bg-emerald-600" />
     </div>
@@ -367,7 +388,7 @@ function TelaEstorno({ produtos, tecnicos, estoque, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center text-red-600"><Undo2 className="mr-2"/> Correção / Devolução</h2>
-        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Equipamento:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Qual modelo será devolvido?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || (tipo === 'TECNICO' && !tecnicoId) || seriais.length === 0} labelBtn="Executar Estorno" corBtn="bg-red-600" />
     </div>
@@ -421,17 +442,72 @@ function TelaCompras({ previsao }) {
   );
 }
 
+// ==========================================
+// TELA DE CONFIGURAÇÕES (Agora configurando a Categoria Inteira)
+// ==========================================
 function TelaConfiguracao({ produtos, tecnicos, reload }) {
-  const [tipo, setTipo] = useState('PRODUTO'), [id, setId] = useState(''), [limite, setLimite] = useState('');
-  const submit = async (e) => { e.preventDefault(); await api.put('/configurar-alerta', { tipo, id, novo_limite: Number(limite) }); alert('Salvo!'); reload(); };
-  return (<div className="bg-white p-8 rounded-xl shadow-sm max-w-lg border border-gray-100"><h2 className="text-2xl font-bold mb-6 flex items-center"><Settings className="mr-2"/> Alertas</h2><form onSubmit={submit} className="space-y-4"><div><select className="w-full p-4 border rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setId('');}}><option value="PRODUTO">Matriz</option><option value="TECNICO">Técnicos</option></select></div><div><select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}><option value="">Selecione...</option>{tipo === 'PRODUTO' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><input required type="number" className="w-full p-4 border rounded-xl" value={limite} onChange={e => setLimite(e.target.value)} /></div><button type="submit" className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl">Salvar</button></form></div>);
+  const [tipo, setTipo] = useState('CATEGORIA');
+  const [id, setId] = useState('RASTREADOR');
+  const [limite, setLimite] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (tipo === 'CATEGORIA') {
+      const prodsDaCategoria = produtos.filter(p => p.categoria === id);
+      if (prodsDaCategoria.length === 0) return alert('Cadastre pelo menos 1 modelo desta categoria primeiro.');
+      
+      // Atualiza o limite de todos os modelos daquela categoria no banco
+      for (let p of prodsDaCategoria) {
+        await api.put('/configurar-alerta', { tipo: 'PRODUTO', id: p.id, novo_limite: Number(limite) });
+      }
+    } else {
+      await api.put('/configurar-alerta', { tipo: 'TECNICO', id, novo_limite: Number(limite) });
+    }
+    alert('Regra de Alerta Salva!');
+    setLimite('');
+    reload();
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-xl shadow-sm max-w-lg border border-gray-100">
+      <h2 className="text-2xl font-bold mb-6 flex items-center"><Settings className="mr-2"/> Configuração de Alertas</h2>
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Onde aplicar o alerta?</label>
+          <select className="w-full p-4 border rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setId(e.target.value === 'CATEGORIA' ? 'RASTREADOR' : '');}}>
+            <option value="CATEGORIA">Geral da Matriz (Por Categoria)</option>
+            <option value="TECNICO">Estoque do Técnico</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Selecione o Alvo</label>
+          {tipo === 'CATEGORIA' ? (
+            <select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}>
+              <option value="RASTREADOR">Total de Rastreadores</option>
+              <option value="TAG">Total de Tags</option>
+            </select>
+          ) : (
+            <select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}>
+              <option value="">Selecione o Técnico...</option>
+              {tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Mínima Exigida</label>
+          <input required type="number" min="0" placeholder="Ex: 50" className="w-full p-4 border rounded-xl" value={limite} onChange={e => setLimite(e.target.value)} />
+        </div>
+        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl">Salvar Nova Regra</button>
+      </form>
+    </div>
+  );
 }
 
 function TelaTecnicos({ tecnicos, estoque, reload }) {
   const [nome, setNome] = useState('');
   const submit = async (e) => { e.preventDefault(); await api.post('/tecnicos', { nome }); alert('Cadastrado!'); setNome(''); reload(); };
   const remover = async (id, nomeTec) => { if (estoque.some(et => et.tecnico_id === id && et.quantidade > 0)) return alert(`Técnico possui itens.`); if (window.confirm(`Remover ${nomeTec}?`)) { await api.delete(`/tecnicos/${id}`); reload(); } };
-  return (<div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit"><h2 className="text-2xl font-bold mb-6 flex items-center"><UserPlus className="mr-2"/> Novo Técnico</h2><form onSubmit={submit} className="space-y-4"><input required className="w-full p-4 border rounded-xl" value={nome} onChange={e => setNome(e.target.value)}/><button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl">Salvar</button></form></div><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-xl font-bold mb-6">Equipe</h2><ul className="divide-y">{tecnicos.map(t => (<li key={t.id} className="py-4 font-medium flex justify-between">{t.nome}<button onClick={() => remover(t.id, t.nome)} className="text-red-400 hover:text-red-600"><Trash2 size={20} /></button></li>))}</ul></div></div>);
+  return (<div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit"><h2 className="text-2xl font-bold mb-6 flex items-center"><UserPlus className="mr-2"/> Novo Técnico</h2><form onSubmit={submit} className="space-y-4"><input required placeholder="Nome do Instalador" className="w-full p-4 border rounded-xl" value={nome} onChange={e => setNome(e.target.value)}/><button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl">Salvar</button></form></div><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-xl font-bold mb-6">Equipe</h2><ul className="divide-y">{tecnicos.map(t => (<li key={t.id} className="py-4 font-medium flex justify-between">{t.nome}<button onClick={() => remover(t.id, t.nome)} className="text-red-400 hover:text-red-600"><Trash2 size={20} /></button></li>))}</ul></div></div>);
 }
 
 function TelaLogs({ logs }) {
