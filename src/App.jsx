@@ -285,7 +285,16 @@ function TelaEquipamentos({ produtos, reload }) {
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Box className="mr-2"/> Novo Modelo</h2>
         <form onSubmit={submit} className="space-y-4">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome do Modelo</label><input required className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={nome} onChange={e => setNome(e.target.value)} /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label><select className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50 font-bold text-blue-800" value={categoria} onChange={e => setCategoria(e.target.value)}><option value="RASTREADOR">Rastreador</option><option value="TAG">Tag (Pedágio)</option><option value="ISCA">Isca de Carga</option><option value="CHIP">Chip M2M</option><option value="ACESSORIO">Acessório</option></select></div>
+          
+          {/* APENAS AS DUAS CATEGORIAS AQUI */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+            <select className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50 font-bold text-blue-800" value={categoria} onChange={e => setCategoria(e.target.value)}>
+              <option value="RASTREADOR">Rastreador</option>
+              <option value="TAG">Tag</option>
+            </select>
+          </div>
+
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Alerta de Estoque Mínimo</label><input required type="number" min="0" className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={estoqueMinimo} onChange={e => setEstoqueMinimo(Number(e.target.value))} /></div>
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl mt-2">Cadastrar Modelo</button>
         </form>
