@@ -198,20 +198,49 @@ function LeitorSeriais({ seriais, setSeriais }) {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [processandoFoto, setProcessandoFoto] = useState(false);
 
+  // Efeito da câmera isolado (não reinicia ao ler um código)
   useEffect(() => {
+    let scanner = null;
+    
     if (cameraAtiva) {
-      const scanner = new Html5QrcodeScanner("reader-camera", { fps: 10, qrbox: { width: 250, height: 150 } }, false);
-      scanner.render((decodedText) => adicionarSerial(decodedText), () => {});
-      return () => scanner.clear().catch(e => console.error("Erro ao limpar câmera:", e));
+      // Instancia o leitor com configurações otimizadas para mobile
+      scanner = new Html5QrcodeScanner("reader-camera", { 
+        fps: 10, 
+        qrbox: { width: 250, height: 150 },
+        rememberLastUsedCamera: true
+      }, false);
+      
+      scanner.render((decodedText) => {
+        adicionarSerial(decodedText);
+      }, (errorMessage) => {
+        // Ignora erros de frame vazio para não poluir o console
+      });
     }
-  }, [cameraAtiva, seriais]);
 
+    // Limpa a câmera ao fechar
+    return () => {
+      if (scanner) {
+        scanner.clear().catch(e => console.error("Erro ao limpar câmera:", e));
+      }
+    };
+  }, [cameraAtiva]); // Removido 'seriais' daqui para a câmera não piscar!
+
+  // Função isolada e segura para adicionar o IMEI
   const adicionarSerial = (codigo) => {
     const formatado = codigo.trim();
-    if (!formatado || seriais.includes(formatado)) return;
-    const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3');
-    audio.play().catch(() => {});
-    setSeriais(prev => [formatado, ...prev]);
+    if (!formatado) return;
+    
+    // Usa o prev State para verificar duplicatas sem depender da variável externa
+    setSeriais(prev => {
+      if (prev.includes(formatado)) return prev; // Se já bipou, ignora
+      
+      // Toca o bipe
+      const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3');
+      audio.play().catch(() => {});
+      
+      return [formatado, ...prev]; // Adiciona na lista
+    });
+    
     setInputManual('');
   };
 
@@ -241,7 +270,7 @@ function LeitorSeriais({ seriais, setSeriais }) {
         ) : (
           <div className="w-full mb-2">
             <button type="button" onClick={() => setCameraAtiva(false)} className="mb-2 text-red-500 font-bold flex items-center justify-center w-full bg-red-50 p-2 rounded-lg"><X size={20} className="mr-1"/> Fechar Câmera</button>
-            <div id="reader-camera" className="w-full overflow-hidden rounded-xl border-2 border-dashed border-blue-400"></div>
+            <div id="reader-camera" className="w-full overflow-hidden rounded-xl border-2 border-dashed border-blue-400 bg-black text-white"></div>
           </div>
         )}
         <label className={`flex-1 ${processandoFoto ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'} text-white font-bold py-4 rounded-xl flex justify-center items-center transition shadow-sm`}>
