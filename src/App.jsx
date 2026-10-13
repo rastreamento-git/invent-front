@@ -15,7 +15,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [previsao, setPrevisao] = useState([]);
   const [dashboard, setDashboard] = useState({ kpis: {}, grafico: [], tecnicos: [] });
-  const [imeisGlobais, setImeisGlobais] = useState([]); // Agora todos os IMEIs ficam carregados na memória
+  const [imeisGlobais, setImeisGlobais] = useState([]); 
   
   const notificadoRef = useRef(new Set());
 
@@ -78,25 +78,6 @@ export default function App() {
       });
     }
   }, [produtos, estoqueTecnicos]);
-
-  useEffect(() => {
-    let buffer = '';
-    const secretCode = 'resetzenseguros';
-    const handleKeyDown = (e) => {
-      if (e.key.length === 1) {
-        buffer += e.key.toLowerCase();
-        if (buffer.length > secretCode.length) buffer = buffer.slice(-secretCode.length);
-        if (buffer === secretCode) {
-          buffer = ''; 
-          if (window.confirm('⚠️ EASTER EGG ATIVADO: Deseja zerar todo o estoque?')) {
-            api.post('/reset').then(() => { alert('Sistema resetado com sucesso!'); window.location.reload(); }).catch(() => alert('Erro ao resetar.'));
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   const changeTab = (tab) => { setActiveTab(tab); setMenuAberto(false); };
 
@@ -167,10 +148,8 @@ function MenuButton({ icon, label, active, onClick }) {
 }
 
 // ==========================================
-// COMPONENTES DE LEITURA E SELEÇÃO
+// CÂMERA: USADA APENAS NA ENTRADA E TRIAGEM
 // ==========================================
-
-// Leitor para Entrada e Triagem (onde o item ainda não é conhecido pelo usuário)
 function LeitorSeriais({ seriais, setSeriais }) {
   const [inputManual, setInputManual] = useState('');
   const [cameraAtiva, setCameraAtiva] = useState(false);
@@ -234,63 +213,6 @@ function LeitorSeriais({ seriais, setSeriais }) {
   );
 }
 
-// NOVO: Seleção por Caixinhas (Para Transferências, Instalação e Estorno)
-function ListaSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, produtos, tecnicos, seriais, setSeriais }) {
-  const [imeisList, setImeisList] = useState([]);
-
-  useEffect(() => {
-    setSeriais([]); // Limpa a seleção ao trocar de modelo ou técnico
-    if (!produtoId) { setImeisList([]); return; }
-    if (statusAlvo === 'TECNICO' && !tecnicoId) { setImeisList([]); return; }
-
-    const produtoSelecionado = produtos.find(p => p.id === Number(produtoId));
-    const tecnicoSelecionado = tecnicoId ? tecnicos.find(t => t.id === Number(tecnicoId)) : null;
-
-    if (produtoSelecionado) {
-      const filtrados = imeisGlobais.filter(i => {
-        const isProduto = i.produto === produtoSelecionado.nome;
-        const isStatus = i.status === statusAlvo;
-        const isTecnico = statusAlvo === 'TECNICO' ? (tecnicoSelecionado && i.tecnico === tecnicoSelecionado.nome) : true;
-        return isProduto && isStatus && isTecnico;
-      });
-      setImeisList(filtrados.map(i => i.codigo_serial));
-    } else {
-      setImeisList([]);
-    }
-  }, [produtoId, tecnicoId, statusAlvo, produtos, tecnicos, imeisGlobais]);
-
-  const handleToggle = (codigo) => setSeriais(prev => prev.includes(codigo) ? prev.filter(c => c !== codigo) : [...prev, codigo]);
-  const handleToggleTodos = () => setSeriais(seriais.length === imeisList.length ? [] : [...imeisList]);
-
-  return (
-    <div className="pt-4 border-t mt-4">
-      <div className="flex justify-between items-center mb-3">
-        <label className="font-bold text-gray-700">Selecione os equipamentos:</label>
-        {imeisList.length > 0 && (
-          <button type="button" onClick={handleToggleTodos} className="text-sm text-blue-600 font-bold hover:underline">
-            {seriais.length === imeisList.length ? 'Desmarcar Todos' : 'Marcar Todos'}
-          </button>
-        )}
-      </div>
-      
-      {imeisList.length === 0 ? (
-        <div className="text-center p-6 bg-gray-50 rounded-xl text-gray-500 italic border border-gray-200">
-          Nenhum equipamento deste modelo disponível para esta ação.
-        </div>
-      ) : (
-        <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-xl bg-gray-50 p-2 space-y-1">
-          {imeisList.map(codigo => (
-            <label key={codigo} className={`flex items-center p-3 rounded-lg cursor-pointer transition ${seriais.includes(codigo) ? 'bg-blue-100 border-blue-300' : 'bg-white hover:bg-gray-100'} border border-transparent`}>
-              <input type="checkbox" className="w-5 h-5 mr-3 text-blue-600 rounded focus:ring-blue-500" checked={seriais.includes(codigo)} onChange={() => handleToggle(codigo)} />
-              <span className="font-mono text-sm font-medium text-gray-800">{codigo}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, corBtn }) {
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col h-fit">
@@ -308,7 +230,102 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
           </ul>
         )}
       </div>
-      <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none' : corBtn}`}>{labelBtn}</button>
+      <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none cursor-not-allowed' : corBtn}`}>{labelBtn}</button>
+    </div>
+  );
+}
+
+// ==========================================
+// NOVO: SIDEBAR DE SELEÇÃO COM BUSCA E CHECKBOX
+// ==========================================
+function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, produtos, tecnicos, seriais, setSeriais, submit, disabled, labelBtn, corBtn }) {
+  const [busca, setBusca] = useState('');
+  const [imeisDisponiveis, setImeisDisponiveis] = useState([]);
+
+  useEffect(() => {
+    setSeriais([]); // Limpa ao trocar modelo ou técnico
+    if (!produtoId) { setImeisDisponiveis([]); return; }
+    if (statusAlvo === 'TECNICO' && !tecnicoId) { setImeisDisponiveis([]); return; }
+
+    const produtoSelecionado = produtos.find(p => p.id === Number(produtoId));
+    const tecnicoSelecionado = tecnicoId ? tecnicos.find(t => t.id === Number(tecnicoId)) : null;
+
+    if (produtoSelecionado) {
+      const filtrados = imeisGlobais.filter(i => {
+        const isProduto = i.produto === produtoSelecionado.nome;
+        const isStatus = i.status === statusAlvo;
+        const isTecnico = statusAlvo === 'TECNICO' ? (tecnicoSelecionado && i.tecnico === tecnicoSelecionado.nome) : true;
+        return isProduto && isStatus && isTecnico;
+      });
+      setImeisDisponiveis(filtrados.map(i => i.codigo_serial));
+    } else {
+      setImeisDisponiveis([]);
+    }
+  }, [produtoId, tecnicoId, statusAlvo, produtos, tecnicos, imeisGlobais]);
+
+  const imeisFiltradosPesquisa = imeisDisponiveis.filter(codigo => codigo.toLowerCase().includes(busca.toLowerCase()));
+
+  const handleToggle = (codigo) => setSeriais(prev => prev.includes(codigo) ? prev.filter(c => c !== codigo) : [...prev, codigo]);
+  
+  const handleToggleTodos = () => {
+    const todosSelecionados = imeisFiltradosPesquisa.length > 0 && imeisFiltradosPesquisa.every(codigo => seriais.includes(codigo));
+    if (todosSelecionados) {
+      setSeriais(prev => prev.filter(c => !imeisFiltradosPesquisa.includes(c)));
+    } else {
+      const novos = new Set([...seriais, ...imeisFiltradosPesquisa]);
+      setSeriais(Array.from(novos));
+    }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[550px] lg:h-[650px]">
+      <h3 className="text-xl font-bold text-gray-800 mb-2">Seleção de Equipamentos</h3>
+      
+      {/* BARRA DE PESQUISA */}
+      <div className="mb-4 relative">
+        <Search className="absolute left-3 top-4 text-gray-400" size={18} />
+        <input 
+          type="text" 
+          placeholder="Pesquisar IMEI/QR Code..." 
+          className="w-full pl-10 p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+        />
+      </div>
+
+      <div className="flex justify-between items-center mb-2 px-1">
+        <span className="text-sm text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md">{seriais.length} selecionado(s)</span>
+        {imeisFiltradosPesquisa.length > 0 && (
+          <button type="button" onClick={handleToggleTodos} className="text-sm text-gray-600 font-bold hover:text-blue-600 hover:underline">
+            {imeisFiltradosPesquisa.every(codigo => seriais.includes(codigo)) ? 'Desmarcar Visíveis' : 'Marcar Visíveis'}
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto bg-slate-50 p-2 rounded-xl border border-slate-200 mb-6">
+        {!produtoId ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-400 italic text-sm text-center px-4">
+            <Truck size={32} className="mb-2 text-slate-300"/> Selecione os dados ao lado para ver os itens disponíveis.
+          </div>
+        ) : imeisDisponiveis.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-slate-400 italic text-sm text-center">Nenhum equipamento deste modelo disponível.</div>
+        ) : imeisFiltradosPesquisa.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-slate-400 italic text-sm text-center">Nenhum IMEI encontrado na pesquisa.</div>
+        ) : (
+          <div className="space-y-1">
+            {imeisFiltradosPesquisa.map(codigo => (
+              <label key={codigo} className={`flex items-center p-3 rounded-lg cursor-pointer transition ${seriais.includes(codigo) ? 'bg-blue-100 border-blue-300' : 'bg-white hover:bg-gray-100'} border border-transparent shadow-sm`}>
+                <input type="checkbox" className="w-5 h-5 mr-3 text-blue-600 rounded focus:ring-blue-500" checked={seriais.includes(codigo)} onChange={() => handleToggle(codigo)} />
+                <span className="font-mono text-sm font-medium text-gray-800">{codigo}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none cursor-not-allowed' : corBtn}`}>
+        {labelBtn} ({seriais.length})
+      </button>
     </div>
   );
 }
@@ -320,6 +337,7 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
 function TelaEquipamentos({ produtos, reload }) {
   const [nome, setNome] = useState('');
   const [categoria, setCategoria] = useState('RASTREADOR');
+
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -329,11 +347,14 @@ function TelaEquipamentos({ produtos, reload }) {
       alert('Equipamento cadastrado com sucesso!'); setNome(''); reload();
     } catch (err) { alert('Erro ao cadastrar equipamento.'); }
   };
+  
   const removerEquipamento = async (id, nomeEquip) => {
     if (window.confirm(`Tem certeza que deseja remover o modelo ${nomeEquip}?`)) { 
-      try { await api.delete(`/produtos/${id}`); alert('Removido!'); reload(); } catch (err) { alert(err.response?.data?.error || 'Erro ao remover.'); } 
+      try { await api.delete(`/produtos/${id}`); alert('Removido!'); reload(); } 
+      catch (err) { alert(err.response?.data?.error || 'Erro ao remover.'); } 
     }
   };
+
   return (
     <div className="flex flex-col lg:flex-row gap-8">
       <div className="w-full lg:w-1/3 bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit">
@@ -350,7 +371,18 @@ function TelaEquipamentos({ produtos, reload }) {
       </div>
       <div className="flex-1 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
         <h2 className="text-xl font-bold text-gray-800 mb-6">Modelos no Sistema</h2>
-        <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead><tbody>{produtos.map(p => (<tr key={p.id} className="border-b text-sm hover:bg-gray-50"><td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td><td className="p-4 font-medium">{p.nome}</td><td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td></tr>))}</tbody></table></div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left whitespace-nowrap">
+            <thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead>
+            <tbody>{produtos.map(p => (
+              <tr key={p.id} className="border-b text-sm hover:bg-gray-50">
+                <td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td>
+                <td className="p-4 font-medium">{p.nome}</td>
+                <td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -363,7 +395,6 @@ function TelaEntrada({ produtos, reload }) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><PackagePlus className="mr-2"/> Entrada (Matriz)</h2>
         <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Vincular IMEIs ao Modelo:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione o modelo que chegou...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria || 'EQUIP'}] {p.nome}</option>)}</select></div>
-        {/* A ENTRADA CONTINUA USANDO A CÂMERA */}
         <LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || seriais.length === 0} labelBtn="Confirmar Entrada" corBtn="bg-emerald-600" />
@@ -377,11 +408,9 @@ function TelaTransferencia({ produtos, tecnicos, imeisGlobais, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Truck className="mr-2"/> Transferir para Técnico</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele vai levar?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome} (Disp: {p.quantidade_matriz})</option>)}</select></div></div>
-        {/* LISTA DE CAIXINHAS */}
-        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="MATRIZ" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico Destino:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele vai levar?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome}</option>)}</select></div></div></div>
       </div>
-      <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Executar Transferência" corBtn="bg-blue-600" />
+      <SidebarSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="MATRIZ" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Executar Transferência" corBtn="bg-blue-600 hover:bg-blue-700" />
     </div>
   );
 }
@@ -393,11 +422,9 @@ function TelaInstalacao({ produtos, tecnicos, estoque, imeisGlobais, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Wrench className="mr-2"/> Registrar Instalação</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele instalou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div></div>
-        {/* LISTA DE CAIXINHAS */}
-        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="TECNICO" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele instalou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome}</option>)}</select></div></div></div>
       </div>
-      <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Confirmar Instalação" corBtn="bg-emerald-600" />
+      <SidebarSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="TECNICO" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Confirmar Instalação" corBtn="bg-emerald-600 hover:bg-emerald-700" />
     </div>
   );
 }
@@ -409,11 +436,9 @@ function TelaEstorno({ produtos, tecnicos, estoque, imeisGlobais, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center text-red-600"><Undo2 className="mr-2"/> Correção / Devolução</h2>
-        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Qual modelo será devolvido?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div>
-        {/* LISTA DE CAIXINHAS DINÂMICA */}
-        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo={tipo} produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Qual modelo será devolvido?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome}</option>)}</select></div></div>
       </div>
-      <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || (tipo === 'TECNICO' && !tecnicoId) || seriais.length === 0} labelBtn="Executar Estorno" corBtn="bg-red-600" />
+      <SidebarSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo={tipo} produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || (tipo === 'TECNICO' && !tecnicoId) || seriais.length === 0} labelBtn="Executar Estorno" corBtn="bg-red-600 hover:bg-red-700" />
     </div>
   );
 }
@@ -427,7 +452,6 @@ function TelaRastreioTriagem({ imeisGlobais, reload }) {
   return (
     <div className="space-y-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-2 gap-8"><div><h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center"><ShieldCheck className="mr-2 text-orange-500"/> RMA / Triagem</h2><p className="text-sm text-gray-500 mb-6">Receba equipamentos defeituosos.</p>
-      {/* TRIAGEM CONTINUA USANDO A CÂMERA */}
       <LeitorSeriais seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} /></div><SidebarConferencia seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} submit={enviarParaTriagem} disabled={seriaisRecebidos.length === 0} labelBtn="Mandar para Triagem" corBtn="bg-orange-500" /></div>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b border-gray-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4"><h2 className="text-xl font-bold text-gray-800 flex items-center"><Search className="mr-2"/> Rastreabilidade</h2><div className="flex items-center gap-4"><button onClick={limparAntigos} className="text-sm bg-white border px-4 py-2 rounded-md">Limpar (+30 dias)</button><select className="p-2 border rounded-md font-bold" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="TODOS">Ver Todos</option><option value="MATRIZ">Matriz</option><option value="TECNICO">Com Técnico</option><option value="INSTALADO">Instalados</option><option value="TRIAGEM">Na Triagem</option><option value="SUCATA">Sucata</option></select></div></div>
         <div className="overflow-x-auto max-h-[500px]"><table className="w-full text-left whitespace-nowrap"><thead className="sticky top-0 bg-gray-100"><tr className="text-gray-600 text-sm"><th className="p-4">IMEI / QR</th><th className="p-4">Equipamento</th><th className="p-4">Status</th><th className="p-4">Atualização</th><th className="p-4 text-center">Ações</th></tr></thead><tbody>{imeisFiltrados.map((i) => (<tr key={i.codigo_serial} className="border-b text-sm"><td className="p-4 font-mono font-bold text-blue-600">{i.codigo_serial}</td><td className="p-4 font-medium">[{i.categoria || 'EQUIP'}] {i.produto}</td><td className="p-4">{i.status}</td><td className="p-4">{new Date(i.data_atualizacao).toLocaleString('pt-BR')}</td><td className="p-4 text-center">{i.status === 'TRIAGEM' ? (<div className="flex justify-center gap-2"><button onClick={() => avaliar(i.codigo_serial, i.produto_id, true)} className="bg-green-100 text-green-700 px-3 py-1 rounded">Aprovar Reuso</button><button onClick={() => avaliar(i.codigo_serial, i.produto_id, false)} className="bg-red-100 text-red-700 px-3 py-1 rounded">Sucata</button></div>) : '-'}</td></tr>))}</tbody></table></div></div>
@@ -454,59 +478,4 @@ function TelaDashboard({ data }) {
 }
 
 function CardStat({ titulo, valor, cor }) {
-  return (<div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100"><h4 className="text-gray-500 text-sm font-semibold uppercase">{titulo}</h4><p className={`text-4xl font-bold mt-2 text-transparent bg-clip-text bg-gradient-to-r ${cor} to-black`}>{valor}</p></div>);
-}
-
-function TelaCompras({ previsao, produtos }) {
-  const comprasPorCategoria = {};
-  previsao.forEach(prev => {
-    const prod = produtos.find(p => p.id === prev.id);
-    const cat = prod ? (prod.categoria || 'RASTREADOR') : 'RASTREADOR';
-    if (!comprasPorCategoria[cat]) { comprasPorCategoria[cat] = { categoria: cat, cmd: 0, ponto_pedido: 0, quantidade_matriz: 0, sugerido: 0 }; }
-    comprasPorCategoria[cat].cmd += Number(prev.cmd || 0);
-    comprasPorCategoria[cat].ponto_pedido += Number(prev.ponto_pedido || 0);
-    comprasPorCategoria[cat].quantidade_matriz += Number(prev.quantidade_matriz || 0);
-    comprasPorCategoria[cat].sugerido += Number(prev.sugerido || 0);
-  });
-  const listaCompras = Object.values(comprasPorCategoria).map(cat => ({ ...cat, cmd: cat.cmd.toFixed(2), status: cat.quantidade_matriz <= cat.ponto_pedido ? 'URGENTE' : 'OK' }));
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b bg-gradient-to-r from-blue-50 to-white"><h2 className="text-2xl font-bold flex items-center"><ShoppingCart className="mr-2 text-blue-600"/> Inteligência de Compras (Por Categoria)</h2></div>
-      <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b text-center">Média/Dia</th><th className="p-4 border-b text-center">Ponto de Pedido</th><th className="p-4 border-b text-center">Estoque Atual</th><th className="p-4 border-b text-center">Sugestão de Compra</th></tr></thead><tbody>{listaCompras.map((c, i) => (<tr key={i} className="border-b text-sm"><td className="p-4 font-bold text-blue-800">{c.categoria}</td><td className="p-4 text-center">{c.cmd}</td><td className="p-4 text-center font-bold text-orange-600">{c.ponto_pedido}</td><td className={`p-4 text-center font-bold ${c.status === 'URGENTE' ? 'text-red-600' : 'text-green-600'}`}>{c.quantidade_matriz}</td><td className="p-4 text-center"><span className={`py-1 px-3 rounded font-bold text-sm ${c.sugerido > 0 ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{c.sugerido > 0 ? `Comprar ${c.sugerido}` : 'Estoque Adequado'}</span></td></tr>))}{listaCompras.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">Sem dados de movimentação.</td></tr>}</tbody></table></div>
-    </div>
-  );
-}
-
-function TelaConfiguracao({ produtos, tecnicos, reload }) {
-  const [tipo, setTipo] = useState('CATEGORIA'); const [id, setId] = useState('RASTREADOR'); const [limite, setLimite] = useState('');
-  const submit = async (e) => {
-    e.preventDefault();
-    if (tipo === 'CATEGORIA') {
-      const prodsDaCategoria = produtos.filter(p => p.categoria === id);
-      if (prodsDaCategoria.length === 0) return alert('Cadastre pelo menos 1 modelo desta categoria primeiro.');
-      for (let p of prodsDaCategoria) { await api.put('/configurar-alerta', { tipo: 'PRODUTO', id: p.id, novo_limite: Number(limite) }); }
-    } else { await api.put('/configurar-alerta', { tipo: 'TECNICO', id, novo_limite: Number(limite) }); }
-    alert('Regra de Alerta Salva!'); setLimite(''); reload();
-  };
-  return (
-    <div className="bg-white p-8 rounded-xl shadow-sm max-w-lg border border-gray-100"><h2 className="text-2xl font-bold mb-6 flex items-center"><Settings className="mr-2"/> Configuração de Alertas</h2>
-      <form onSubmit={submit} className="space-y-4">
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">Onde aplicar o alerta?</label><select className="w-full p-4 border rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setId(e.target.value === 'CATEGORIA' ? 'RASTREADOR' : '');}}><option value="CATEGORIA">Geral da Matriz (Por Categoria)</option><option value="TECNICO">Estoque do Técnico</option></select></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">Selecione o Alvo</label>{tipo === 'CATEGORIA' ? (<select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}><option value="RASTREADOR">Total de Rastreadores</option><option value="TAG">Total de Tags</option></select>) : (<select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}><option value="">Selecione o Técnico...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select>)}</div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Mínima Exigida</label><input required type="number" min="0" placeholder="Ex: 50" className="w-full p-4 border rounded-xl" value={limite} onChange={e => setLimite(e.target.value)} /></div>
-        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl">Salvar Nova Regra</button>
-      </form>
-    </div>
-  );
-}
-
-function TelaTecnicos({ tecnicos, estoque, reload }) {
-  const [nome, setNome] = useState('');
-  const submit = async (e) => { e.preventDefault(); await api.post('/tecnicos', { nome }); alert('Cadastrado!'); setNome(''); reload(); };
-  const remover = async (id, nomeTec) => { if (estoque.some(et => et.tecnico_id === id && et.quantidade > 0)) return alert(`Técnico possui itens.`); if (window.confirm(`Remover ${nomeTec}?`)) { await api.delete(`/tecnicos/${id}`); reload(); } };
-  return (<div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit"><h2 className="text-2xl font-bold mb-6 flex items-center"><UserPlus className="mr-2"/> Novo Técnico</h2><form onSubmit={submit} className="space-y-4"><input required placeholder="Nome do Instalador" className="w-full p-4 border rounded-xl" value={nome} onChange={e => setNome(e.target.value)}/><button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl">Salvar</button></form></div><div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-xl font-bold mb-6">Equipe</h2><ul className="divide-y">{tecnicos.map(t => (<li key={t.id} className="py-4 font-medium flex justify-between">{t.nome}<button onClick={() => remover(t.id, t.nome)} className="text-red-400 hover:text-red-600"><Trash2 size={20} /></button></li>))}</ul></div></div>);
-}
-
-function TelaLogs({ logs }) {
-  return (<div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b"><h2 className="text-2xl font-bold flex items-center"><ClipboardList className="mr-2"/> Histórico</h2></div><div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-sm"><th className="p-4">Data</th><th className="p-4">Ação</th><th className="p-4">Equipamento</th><th className="p-4">Técnico</th><th className="p-4 text-center">Quantidade</th></tr></thead><tbody>{logs.map((log) => (<tr key={log.id} className="border-b text-sm"><td className="p-4">{new Date(log.data).toLocaleString('pt-BR')}</td><td className="p-4 font-bold">{log.tipo}</td><td className="p-4">{log.produto}</td><td className="p-4">{log.tecnico || '-'}</td><td className="p-4 text-center font-bold">{log.quantidade}</td></tr>))}</tbody></table></div></div>);
-}
+  return (<div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100"><h4 className="text-gray-500 text-sm font-semibold uppercase">{titulo}</h4><p className={`text-4xl font-bold mt-2
