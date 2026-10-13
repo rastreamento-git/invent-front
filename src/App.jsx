@@ -15,17 +15,19 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [previsao, setPrevisao] = useState([]);
   const [dashboard, setDashboard] = useState({ kpis: {}, grafico: [], tecnicos: [] });
+  const [imeisGlobais, setImeisGlobais] = useState([]); // Agora todos os IMEIs ficam carregados na memória
   
   const notificadoRef = useRef(new Set());
 
   const fetchData = async () => {
     try {
-      const [prodRes, techRes, dashRes, estTechRes, logsRes, prevRes] = await Promise.all([
+      const [prodRes, techRes, dashRes, estTechRes, logsRes, prevRes, imeisRes] = await Promise.all([
         api.get('/produtos'), api.get('/tecnicos'), api.get('/dashboard'),
-        api.get('/estoque-tecnicos'), api.get('/logs'), api.get('/previsao-compras')
+        api.get('/estoque-tecnicos'), api.get('/logs'), api.get('/previsao-compras'), api.get('/imeis')
       ]);
       setProdutos(prodRes.data); setTecnicos(techRes.data); setDashboard(dashRes.data);
       setEstoqueTecnicos(estTechRes.data); setLogs(logsRes.data); setPrevisao(prevRes.data);
+      setImeisGlobais(imeisRes.data);
     } catch (error) { console.error("Erro ao buscar dados", error); }
   };
 
@@ -34,7 +36,6 @@ export default function App() {
     fetchData();
   }, []);
 
-  // ALERTA INTELIGENTE POR CATEGORIA
   const categoriasMatriz = {};
   produtos.forEach(p => {
     const cat = p.categoria || 'RASTREADOR';
@@ -52,15 +53,12 @@ export default function App() {
     const cat = et.categoria || 'RASTREADOR';
     const key = `${et.tecnico_id}-${cat}`;
     if (!categoriasTecnicos[key]) {
-      categoriasTecnicos[key] = {
-        tecnico_id: et.tecnico_id, tecnico_nome: et.tecnico_nome, categoria: cat, quantidade: 0, minimo: et.estoque_minimo
-      };
+      categoriasTecnicos[key] = { tecnico_id: et.tecnico_id, tecnico_nome: et.tecnico_nome, categoria: cat, quantidade: 0, minimo: et.estoque_minimo };
     }
     categoriasTecnicos[key].quantidade += Number(et.quantidade);
   });
 
-  const alertasTecnicos = Object.values(categoriasTecnicos)
-    .filter(ct => ct.quantidade <= ct.minimo && ct.quantidade > 0);
+  const alertasTecnicos = Object.values(categoriasTecnicos).filter(ct => ct.quantidade <= ct.minimo && ct.quantidade > 0);
 
   useEffect(() => {
     if (Notification.permission === "granted") {
@@ -106,7 +104,6 @@ export default function App() {
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       {menuAberto && <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setMenuAberto(false)} />}
 
-      {/* MENU LATERAL SLIDE-OUT PARA MOBILE */}
       <aside className={`fixed inset-y-0 left-0 transform ${menuAberto ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 w-72 bg-slate-900 text-white flex flex-col z-50 transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none`}>
         <div className="p-6 text-2xl font-bold border-b border-slate-800 flex justify-between items-center">
           <span>Estoque <span className="text-blue-500">Pro</span></span>
@@ -134,7 +131,6 @@ export default function App() {
         </header>
 
         <div className="flex-1 p-4 md:p-8 overflow-y-auto pb-24">
-          
           {(alertasMatriz.length > 0 || alertasTecnicos.length > 0) && (
             <div className="mb-8 bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
               <div className="flex items-center text-red-800 font-bold mb-2"><AlertTriangle className="mr-2" /> Atenção: Níveis Críticos de Estoque</div>
@@ -147,10 +143,10 @@ export default function App() {
 
           {activeTab === 'dashboard' && <TelaDashboard data={dashboard} />}
           {activeTab === 'entrada' && <TelaEntrada produtos={produtos} reload={fetchData} />}
-          {activeTab === 'transferencia' && <TelaTransferencia produtos={produtos} tecnicos={tecnicos} reload={fetchData} />}
-          {activeTab === 'instalacao' && <TelaInstalacao produtos={produtos} tecnicos={tecnicos} estoque={estoqueTecnicos} reload={fetchData} />}
-          {activeTab === 'estorno' && <TelaEstorno produtos={produtos} tecnicos={tecnicos} estoque={estoqueTecnicos} reload={fetchData} />}
-          {activeTab === 'rastreio' && <TelaRastreioTriagem reload={fetchData} />}
+          {activeTab === 'transferencia' && <TelaTransferencia produtos={produtos} tecnicos={tecnicos} imeisGlobais={imeisGlobais} reload={fetchData} />}
+          {activeTab === 'instalacao' && <TelaInstalacao produtos={produtos} tecnicos={tecnicos} estoque={estoqueTecnicos} imeisGlobais={imeisGlobais} reload={fetchData} />}
+          {activeTab === 'estorno' && <TelaEstorno produtos={produtos} tecnicos={tecnicos} estoque={estoqueTecnicos} imeisGlobais={imeisGlobais} reload={fetchData} />}
+          {activeTab === 'rastreio' && <TelaRastreioTriagem imeisGlobais={imeisGlobais} reload={fetchData} />}
           {activeTab === 'equipamentos' && <TelaEquipamentos produtos={produtos} reload={fetchData} />}
           {activeTab === 'compras' && <TelaCompras previsao={previsao} produtos={produtos} />}
           {activeTab === 'tecnicos' && <TelaTecnicos tecnicos={tecnicos} estoque={estoqueTecnicos} reload={fetchData} />}
@@ -170,7 +166,11 @@ function MenuButton({ icon, label, active, onClick }) {
   );
 }
 
-// CÂMERA AO VIVO COM FIX DE PERFORMANCE E BLOQUEIO DE PISCAR
+// ==========================================
+// COMPONENTES DE LEITURA E SELEÇÃO
+// ==========================================
+
+// Leitor para Entrada e Triagem (onde o item ainda não é conhecido pelo usuário)
 function LeitorSeriais({ seriais, setSeriais }) {
   const [inputManual, setInputManual] = useState('');
   const [cameraAtiva, setCameraAtiva] = useState(false);
@@ -188,11 +188,9 @@ function LeitorSeriais({ seriais, setSeriais }) {
   const adicionarSerial = (codigo) => {
     const formatado = codigo.trim();
     if (!formatado) return;
-    
     setSeriais(prev => {
       if (prev.includes(formatado)) return prev; 
-      const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3');
-      audio.play().catch(() => {});
+      const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3'); audio.play().catch(() => {});
       return [formatado, ...prev]; 
     });
     setInputManual('');
@@ -207,13 +205,12 @@ function LeitorSeriais({ seriais, setSeriais }) {
     for (let i = 0; i < files.length; i++) {
       try { const resultado = await html5QrCode.scanFile(files[i], true); adicionarSerial(resultado); } catch (err) { falhas++; }
     }
-    setProcessandoFoto(false);
-    e.target.value = '';
+    setProcessandoFoto(false); e.target.value = '';
     if (falhas > 0) alert(`${falhas} foto(s) não possuía(m) um código legível.`);
   };
 
   return (
-    <div className="pt-4 border-t flex flex-col gap-3">
+    <div className="pt-4 border-t flex flex-col gap-3 mt-4">
       <div id="file-reader-hidden" style={{ display: 'none' }}></div>
       <div className="flex flex-col md:flex-row gap-3">
         {!cameraAtiva ? (
@@ -233,6 +230,63 @@ function LeitorSeriais({ seriais, setSeriais }) {
         <input type="text" placeholder="Ou digite o IMEI/QR Code..." className="flex-1 p-4 border border-gray-300 rounded-xl bg-gray-50 text-lg" value={inputManual} onChange={e => setInputManual(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionarSerial(inputManual))} />
         <button type="button" onClick={() => adicionarSerial(inputManual)} className="bg-slate-200 text-slate-700 p-4 rounded-xl hover:bg-slate-300 font-bold"><Plus size={24}/></button>
       </div>
+    </div>
+  );
+}
+
+// NOVO: Seleção por Caixinhas (Para Transferências, Instalação e Estorno)
+function ListaSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, produtos, tecnicos, seriais, setSeriais }) {
+  const [imeisList, setImeisList] = useState([]);
+
+  useEffect(() => {
+    setSeriais([]); // Limpa a seleção ao trocar de modelo ou técnico
+    if (!produtoId) { setImeisList([]); return; }
+    if (statusAlvo === 'TECNICO' && !tecnicoId) { setImeisList([]); return; }
+
+    const produtoSelecionado = produtos.find(p => p.id === Number(produtoId));
+    const tecnicoSelecionado = tecnicoId ? tecnicos.find(t => t.id === Number(tecnicoId)) : null;
+
+    if (produtoSelecionado) {
+      const filtrados = imeisGlobais.filter(i => {
+        const isProduto = i.produto === produtoSelecionado.nome;
+        const isStatus = i.status === statusAlvo;
+        const isTecnico = statusAlvo === 'TECNICO' ? (tecnicoSelecionado && i.tecnico === tecnicoSelecionado.nome) : true;
+        return isProduto && isStatus && isTecnico;
+      });
+      setImeisList(filtrados.map(i => i.codigo_serial));
+    } else {
+      setImeisList([]);
+    }
+  }, [produtoId, tecnicoId, statusAlvo, produtos, tecnicos, imeisGlobais]);
+
+  const handleToggle = (codigo) => setSeriais(prev => prev.includes(codigo) ? prev.filter(c => c !== codigo) : [...prev, codigo]);
+  const handleToggleTodos = () => setSeriais(seriais.length === imeisList.length ? [] : [...imeisList]);
+
+  return (
+    <div className="pt-4 border-t mt-4">
+      <div className="flex justify-between items-center mb-3">
+        <label className="font-bold text-gray-700">Selecione os equipamentos:</label>
+        {imeisList.length > 0 && (
+          <button type="button" onClick={handleToggleTodos} className="text-sm text-blue-600 font-bold hover:underline">
+            {seriais.length === imeisList.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+          </button>
+        )}
+      </div>
+      
+      {imeisList.length === 0 ? (
+        <div className="text-center p-6 bg-gray-50 rounded-xl text-gray-500 italic border border-gray-200">
+          Nenhum equipamento deste modelo disponível para esta ação.
+        </div>
+      ) : (
+        <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-xl bg-gray-50 p-2 space-y-1">
+          {imeisList.map(codigo => (
+            <label key={codigo} className={`flex items-center p-3 rounded-lg cursor-pointer transition ${seriais.includes(codigo) ? 'bg-blue-100 border-blue-300' : 'bg-white hover:bg-gray-100'} border border-transparent`}>
+              <input type="checkbox" className="w-5 h-5 mr-3 text-blue-600 rounded focus:ring-blue-500" checked={seriais.includes(codigo)} onChange={() => handleToggle(codigo)} />
+              <span className="font-mono text-sm font-medium text-gray-800">{codigo}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -259,10 +313,13 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
   );
 }
 
+// ==========================================
+// TELAS DO SISTEMA
+// ==========================================
+
 function TelaEquipamentos({ produtos, reload }) {
   const [nome, setNome] = useState('');
   const [categoria, setCategoria] = useState('RASTREADOR');
-
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -272,14 +329,11 @@ function TelaEquipamentos({ produtos, reload }) {
       alert('Equipamento cadastrado com sucesso!'); setNome(''); reload();
     } catch (err) { alert('Erro ao cadastrar equipamento.'); }
   };
-  
   const removerEquipamento = async (id, nomeEquip) => {
     if (window.confirm(`Tem certeza que deseja remover o modelo ${nomeEquip}?`)) { 
-      try { await api.delete(`/produtos/${id}`); alert('Removido!'); reload(); } 
-      catch (err) { alert(err.response?.data?.error || 'Erro ao remover.'); } 
+      try { await api.delete(`/produtos/${id}`); alert('Removido!'); reload(); } catch (err) { alert(err.response?.data?.error || 'Erro ao remover.'); } 
     }
   };
-
   return (
     <div className="flex flex-col lg:flex-row gap-8">
       <div className="w-full lg:w-1/3 bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit">
@@ -296,18 +350,7 @@ function TelaEquipamentos({ produtos, reload }) {
       </div>
       <div className="flex-1 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
         <h2 className="text-xl font-bold text-gray-800 mb-6">Modelos no Sistema</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left whitespace-nowrap">
-            <thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead>
-            <tbody>{produtos.map(p => (
-              <tr key={p.id} className="border-b text-sm hover:bg-gray-50">
-                <td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td>
-                <td className="p-4 font-medium">{p.nome}</td>
-                <td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
+        <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead><tbody>{produtos.map(p => (<tr key={p.id} className="border-b text-sm hover:bg-gray-50"><td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td><td className="p-4 font-medium">{p.nome}</td><td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td></tr>))}</tbody></table></div>
       </div>
     </div>
   );
@@ -319,65 +362,73 @@ function TelaEntrada({ produtos, reload }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><PackagePlus className="mr-2"/> Entrada (Matriz)</h2>
-        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Vincular IMEIs ao Modelo:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione o modelo que chegou...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria || 'EQUIP'}] {p.nome}</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Vincular IMEIs ao Modelo:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione o modelo que chegou...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria || 'EQUIP'}] {p.nome}</option>)}</select></div>
+        {/* A ENTRADA CONTINUA USANDO A CÂMERA */}
+        <LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || seriais.length === 0} labelBtn="Confirmar Entrada" corBtn="bg-emerald-600" />
     </div>
   );
 }
 
-function TelaTransferencia({ produtos, tecnicos, reload }) {
+function TelaTransferencia({ produtos, tecnicos, imeisGlobais, reload }) {
   const [tecnicoId, setTecnicoId] = useState(''); const [produtoId, setProdutoId] = useState(''); const [seriais, setSeriais] = useState([]);
   const submit = async (e) => { e.preventDefault(); try { await api.post('/transferir', { tecnico_id: tecnicoId, produto_id: produtoId, seriais }); alert('Transferência concluída!'); setSeriais([]); reload(); } catch (err) { alert('Erro.'); } };
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Truck className="mr-2"/> Transferir para Técnico</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele vai levar?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome} (Disp: {p.quantidade_matriz})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele vai levar?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)}><option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>[{p.categoria}] {p.nome} (Disp: {p.quantidade_matriz})</option>)}</select></div></div>
+        {/* LISTA DE CAIXINHAS */}
+        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="MATRIZ" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Executar Transferência" corBtn="bg-blue-600" />
     </div>
   );
 }
 
-function TelaInstalacao({ produtos, tecnicos, estoque, reload }) {
+function TelaInstalacao({ produtos, tecnicos, estoque, imeisGlobais, reload }) {
   const [tecnicoId, setTecnicoId] = useState(''); const [produtoId, setProdutoId] = useState(''); const [seriais, setSeriais] = useState([]);
   const prodDoTecnico = estoque.filter(et => et.tecnico_id === Number(tecnicoId) && et.quantidade > 0);
   const submit = async (e) => { e.preventDefault(); try { await api.post('/instalar', { tecnico_id: tecnicoId, produto_id: produtoId, seriais }); alert('Instalação registrada!'); setSeriais([]); reload(); } catch (err) { alert('Erro.'); } };
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Wrench className="mr-2"/> Registrar Instalação</h2>
-        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele instalou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => {setTecnicoId(e.target.value); setProdutoId('');}}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700">Qual modelo ele instalou?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={!tecnicoId}><option value="">{tecnicoId ? 'Selecione...' : 'Selecione o técnico'}</option>{prodDoTecnico.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div></div>
+        {/* LISTA DE CAIXINHAS */}
+        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo="TECNICO" produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || !tecnicoId || seriais.length === 0} labelBtn="Confirmar Instalação" corBtn="bg-emerald-600" />
     </div>
   );
 }
 
-function TelaEstorno({ produtos, tecnicos, estoque, reload }) {
+function TelaEstorno({ produtos, tecnicos, estoque, imeisGlobais, reload }) {
   const [tipo, setTipo] = useState('MATRIZ'); const [produtoId, setProdutoId] = useState(''); const [tecnicoId, setTecnicoId] = useState(''); const [seriais, setSeriais] = useState([]);
   const submit = async (e) => { e.preventDefault(); if (confirm(`Estornar ${seriais.length} equipamento(s)?`)) { try { await api.post('/estorno', { tipo_estorno: tipo, produto_id: produtoId, tecnico_id: tecnicoId, seriais }); alert('Estornado com sucesso.'); setSeriais([]); reload(); } catch (err) { alert('Erro no estorno.'); } } };
   const estoqueFiltrado = tipo === 'TECNICO' ? estoque.filter(e => e.tecnico_id === Number(tecnicoId)) : [];
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100"><h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center text-red-600"><Undo2 className="mr-2"/> Correção / Devolução</h2>
-        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Qual modelo será devolvido?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div><LeitorSeriais seriais={seriais} setSeriais={setSeriais} /></div>
+        <div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700">Ação de Correção:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setProdutoId(''); setTecnicoId('');}}><option value="MATRIZ">Remover da Matriz</option><option value="TECNICO">Devolução do Técnico p/ Matriz</option></select></div>{tipo === 'TECNICO' && (<div><label className="block text-sm font-medium text-gray-700">Técnico:</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={tecnicoId} onChange={e => setTecnicoId(e.target.value)}><option value="">Selecione...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></div>)}<div><label className="block text-sm font-medium text-gray-700">Qual modelo será devolvido?</label><select className="mt-1 w-full p-4 border border-gray-300 rounded-xl" value={produtoId} onChange={e => setProdutoId(e.target.value)} disabled={tipo === 'TECNICO' && !tecnicoId}><option value="">Selecione...</option>{tipo === 'MATRIZ' ? produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>) : estoqueFiltrado.map(et => <option key={et.produto_id} value={et.produto_id}>{et.produto_nome} (Posse: {et.quantidade})</option>)}</select></div>
+        {/* LISTA DE CAIXINHAS DINÂMICA */}
+        <ListaSelecaoImeis imeisGlobais={imeisGlobais} produtoId={produtoId} tecnicoId={tecnicoId} statusAlvo={tipo} produtos={produtos} tecnicos={tecnicos} seriais={seriais} setSeriais={setSeriais} /></div>
       </div>
       <SidebarConferencia seriais={seriais} setSeriais={setSeriais} submit={submit} disabled={!produtoId || (tipo === 'TECNICO' && !tecnicoId) || seriais.length === 0} labelBtn="Executar Estorno" corBtn="bg-red-600" />
     </div>
   );
 }
 
-function TelaRastreioTriagem({ reload }) {
-  const [imeis, setImeis] = useState([]); const [seriaisRecebidos, setSeriaisRecebidos] = useState([]); const [filtroStatus, setFiltroStatus] = useState('TODOS');
-  const carregarImeis = async () => { const res = await api.get('/imeis'); setImeis(res.data); };
-  useEffect(() => { carregarImeis(); }, []);
-  const enviarParaTriagem = async (e) => { e.preventDefault(); try { await api.post('/triagem/receber', { seriais: seriaisRecebidos }); alert('Enviado para Triagem!'); setSeriaisRecebidos([]); carregarImeis(); reload(); } catch(err) { alert('Erro.'); } };
-  const avaliar = async (codigo_serial, produto_id, aprovado) => { if (window.confirm(aprovado ? "APROVAR Reuso?" : "Mandar para SUCATA?")) { await api.post('/triagem/avaliar', { codigo_serial, produto_id, aprovado }); carregarImeis(); reload(); } };
-  const limparAntigos = async () => { if (window.confirm("Remover instalados +30 dias?")) { const res = await api.delete('/limpeza-instalados'); alert(`${res.data.apagados} apagados.`); carregarImeis(); } };
-  const imeisFiltrados = filtroStatus === 'TODOS' ? imeis : imeis.filter(i => i.status === filtroStatus);
+function TelaRastreioTriagem({ imeisGlobais, reload }) {
+  const [seriaisRecebidos, setSeriaisRecebidos] = useState([]); const [filtroStatus, setFiltroStatus] = useState('TODOS');
+  const enviarParaTriagem = async (e) => { e.preventDefault(); try { await api.post('/triagem/receber', { seriais: seriaisRecebidos }); alert('Enviado para Triagem!'); setSeriaisRecebidos([]); reload(); } catch(err) { alert('Erro.'); } };
+  const avaliar = async (codigo_serial, produto_id, aprovado) => { if (window.confirm(aprovado ? "APROVAR Reuso?" : "Mandar para SUCATA?")) { await api.post('/triagem/avaliar', { codigo_serial, produto_id, aprovado }); reload(); } };
+  const limparAntigos = async () => { if (window.confirm("Remover instalados +30 dias?")) { const res = await api.delete('/limpeza-instalados'); alert(`${res.data.apagados} apagados.`); reload(); } };
+  const imeisFiltrados = filtroStatus === 'TODOS' ? imeisGlobais : imeisGlobais.filter(i => i.status === filtroStatus);
   return (
     <div className="space-y-8">
-      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-2 gap-8"><div><h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center"><ShieldCheck className="mr-2 text-orange-500"/> RMA / Triagem</h2><p className="text-sm text-gray-500 mb-6">Receba equipamentos defeituosos.</p><LeitorSeriais seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} /></div><SidebarConferencia seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} submit={enviarParaTriagem} disabled={seriaisRecebidos.length === 0} labelBtn="Mandar para Triagem" corBtn="bg-orange-500" /></div>
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-2 gap-8"><div><h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center"><ShieldCheck className="mr-2 text-orange-500"/> RMA / Triagem</h2><p className="text-sm text-gray-500 mb-6">Receba equipamentos defeituosos.</p>
+      {/* TRIAGEM CONTINUA USANDO A CÂMERA */}
+      <LeitorSeriais seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} /></div><SidebarConferencia seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} submit={enviarParaTriagem} disabled={seriaisRecebidos.length === 0} labelBtn="Mandar para Triagem" corBtn="bg-orange-500" /></div>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b border-gray-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4"><h2 className="text-xl font-bold text-gray-800 flex items-center"><Search className="mr-2"/> Rastreabilidade</h2><div className="flex items-center gap-4"><button onClick={limparAntigos} className="text-sm bg-white border px-4 py-2 rounded-md">Limpar (+30 dias)</button><select className="p-2 border rounded-md font-bold" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="TODOS">Ver Todos</option><option value="MATRIZ">Matriz</option><option value="TECNICO">Com Técnico</option><option value="INSTALADO">Instalados</option><option value="TRIAGEM">Na Triagem</option><option value="SUCATA">Sucata</option></select></div></div>
         <div className="overflow-x-auto max-h-[500px]"><table className="w-full text-left whitespace-nowrap"><thead className="sticky top-0 bg-gray-100"><tr className="text-gray-600 text-sm"><th className="p-4">IMEI / QR</th><th className="p-4">Equipamento</th><th className="p-4">Status</th><th className="p-4">Atualização</th><th className="p-4 text-center">Ações</th></tr></thead><tbody>{imeisFiltrados.map((i) => (<tr key={i.codigo_serial} className="border-b text-sm"><td className="p-4 font-mono font-bold text-blue-600">{i.codigo_serial}</td><td className="p-4 font-medium">[{i.categoria || 'EQUIP'}] {i.produto}</td><td className="p-4">{i.status}</td><td className="p-4">{new Date(i.data_atualizacao).toLocaleString('pt-BR')}</td><td className="p-4 text-center">{i.status === 'TRIAGEM' ? (<div className="flex justify-center gap-2"><button onClick={() => avaliar(i.codigo_serial, i.produto_id, true)} className="bg-green-100 text-green-700 px-3 py-1 rounded">Aprovar Reuso</button><button onClick={() => avaliar(i.codigo_serial, i.produto_id, false)} className="bg-red-100 text-red-700 px-3 py-1 rounded">Sucata</button></div>) : '-'}</td></tr>))}</tbody></table></div></div>
     </div>
@@ -406,47 +457,22 @@ function CardStat({ titulo, valor, cor }) {
   return (<div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100"><h4 className="text-gray-500 text-sm font-semibold uppercase">{titulo}</h4><p className={`text-4xl font-bold mt-2 text-transparent bg-clip-text bg-gradient-to-r ${cor} to-black`}>{valor}</p></div>);
 }
 
-// TELA DE COMPRAS - AGREGADA POR CATEGORIA
 function TelaCompras({ previsao, produtos }) {
-  
   const comprasPorCategoria = {};
-  
   previsao.forEach(prev => {
     const prod = produtos.find(p => p.id === prev.id);
     const cat = prod ? (prod.categoria || 'RASTREADOR') : 'RASTREADOR';
-    
-    if (!comprasPorCategoria[cat]) {
-      comprasPorCategoria[cat] = { categoria: cat, cmd: 0, ponto_pedido: 0, quantidade_matriz: 0, sugerido: 0 };
-    }
+    if (!comprasPorCategoria[cat]) { comprasPorCategoria[cat] = { categoria: cat, cmd: 0, ponto_pedido: 0, quantidade_matriz: 0, sugerido: 0 }; }
     comprasPorCategoria[cat].cmd += Number(prev.cmd || 0);
     comprasPorCategoria[cat].ponto_pedido += Number(prev.ponto_pedido || 0);
     comprasPorCategoria[cat].quantidade_matriz += Number(prev.quantidade_matriz || 0);
     comprasPorCategoria[cat].sugerido += Number(prev.sugerido || 0);
   });
-
-  const listaCompras = Object.values(comprasPorCategoria).map(cat => ({
-    ...cat, cmd: cat.cmd.toFixed(2), status: cat.quantidade_matriz <= cat.ponto_pedido ? 'URGENTE' : 'OK'
-  }));
+  const listaCompras = Object.values(comprasPorCategoria).map(cat => ({ ...cat, cmd: cat.cmd.toFixed(2), status: cat.quantidade_matriz <= cat.ponto_pedido ? 'URGENTE' : 'OK' }));
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b bg-gradient-to-r from-blue-50 to-white"><h2 className="text-2xl font-bold flex items-center"><ShoppingCart className="mr-2 text-blue-600"/> Inteligência de Compras (Por Categoria)</h2></div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left whitespace-nowrap">
-          <thead><tr className="bg-gray-50 text-sm"><th className="p-4 border-b">Categoria Agrupada</th><th className="p-4 border-b text-center">Média/Dia</th><th className="p-4 border-b text-center">Ponto de Pedido</th><th className="p-4 border-b text-center">Estoque Atual</th><th className="p-4 border-b text-center">Sugestão de Compra</th></tr></thead>
-          <tbody>
-            {listaCompras.map((c, i) => (
-              <tr key={i} className="border-b text-sm">
-                <td className="p-4 font-bold text-blue-800">{c.categoria}</td>
-                <td className="p-4 text-center">{c.cmd}</td>
-                <td className="p-4 text-center font-bold text-orange-600">{c.ponto_pedido}</td>
-                <td className={`p-4 text-center font-bold ${c.status === 'URGENTE' ? 'text-red-600' : 'text-green-600'}`}>{c.quantidade_matriz}</td>
-                <td className="p-4 text-center"><span className={`py-1 px-3 rounded font-bold text-sm ${c.sugerido > 0 ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{c.sugerido > 0 ? `Comprar ${c.sugerido}` : 'Estoque Adequado'}</span></td>
-              </tr>
-            ))}
-            {listaCompras.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">Sem dados de movimentação.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b text-center">Média/Dia</th><th className="p-4 border-b text-center">Ponto de Pedido</th><th className="p-4 border-b text-center">Estoque Atual</th><th className="p-4 border-b text-center">Sugestão de Compra</th></tr></thead><tbody>{listaCompras.map((c, i) => (<tr key={i} className="border-b text-sm"><td className="p-4 font-bold text-blue-800">{c.categoria}</td><td className="p-4 text-center">{c.cmd}</td><td className="p-4 text-center font-bold text-orange-600">{c.ponto_pedido}</td><td className={`p-4 text-center font-bold ${c.status === 'URGENTE' ? 'text-red-600' : 'text-green-600'}`}>{c.quantidade_matriz}</td><td className="p-4 text-center"><span className={`py-1 px-3 rounded font-bold text-sm ${c.sugerido > 0 ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{c.sugerido > 0 ? `Comprar ${c.sugerido}` : 'Estoque Adequado'}</span></td></tr>))}{listaCompras.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">Sem dados de movimentação.</td></tr>}</tbody></table></div>
     </div>
   );
 }
