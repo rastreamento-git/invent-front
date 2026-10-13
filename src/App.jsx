@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { LayoutDashboard, PackagePlus, Truck, Settings, AlertTriangle, Wrench, ClipboardList, ShoppingCart, UserPlus, Undo2, Trash2, ImagePlus, Camera, Plus, X, Search, ShieldCheck, Menu, Box, Upload } from 'lucide-react';
+import { LayoutDashboard, PackagePlus, Truck, Settings, AlertTriangle, Wrench, ClipboardList, ShoppingCart, UserPlus, Undo2, Trash2, ImagePlus, Camera, Plus, X, Search, ShieldCheck, Menu, Box, Upload, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 
@@ -148,7 +148,7 @@ function MenuButton({ icon, label, active, onClick }) {
 }
 
 // ==========================================
-// CÂMERA (Somente Entrada e Triagem)
+// CÂMERA E IMPORTAÇÃO TXT (Entrada e Triagem)
 // ==========================================
 function LeitorSeriais({ seriais, setSeriais }) {
   const [inputManual, setInputManual] = useState('');
@@ -188,6 +188,30 @@ function LeitorSeriais({ seriais, setSeriais }) {
     if (falhas > 0) alert(`${falhas} foto(s) não possuía(m) um código legível.`);
   };
 
+  const handleUploadTXT = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const linhas = event.target.result.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+      if (linhas.length === 0) return alert('Arquivo vazio ou inválido.');
+      
+      let adicionados = 0;
+      setSeriais(prev => {
+        const novos = linhas.filter(l => !prev.includes(l));
+        adicionados = novos.length;
+        if(novos.length > 0) {
+           const audio = new Audio('https://www.soundjay.com/buttons/sounds/beep-07a.mp3'); 
+           audio.play().catch(() => {});
+        }
+        return [...novos, ...prev];
+      });
+      setTimeout(() => alert(`Foram importados ${adicionados} IMEIs novos (ignorando códigos já listados).`), 300);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="pt-4 border-t flex flex-col gap-3 mt-4">
       <div id="file-reader-hidden" style={{ display: 'none' }}></div>
@@ -195,7 +219,7 @@ function LeitorSeriais({ seriais, setSeriais }) {
         {!cameraAtiva ? (
           <button type="button" onClick={() => setCameraAtiva(true)} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl flex justify-center items-center transition"><Camera className="mr-2" /> Câmera ao Vivo</button>
         ) : (
-          <div className="w-full mb-2">
+          <div className="w-full mb-2 flex-1">
             <button type="button" onClick={() => setCameraAtiva(false)} className="mb-2 text-red-500 font-bold flex items-center justify-center w-full bg-red-50 p-2 rounded-lg"><X size={20} className="mr-1"/> Fechar Câmera</button>
             <div id="reader-camera" className="w-full overflow-hidden rounded-xl border-2 border-dashed border-blue-400 bg-black text-white"></div>
           </div>
@@ -204,6 +228,13 @@ function LeitorSeriais({ seriais, setSeriais }) {
           {processandoFoto ? 'Analisando...' : <><ImagePlus className="mr-2" /> Enviar Fotos (Lote)</>}
           <input type="file" accept="image/*" multiple className="hidden" onChange={handleUploadFotos} disabled={processandoFoto} />
         </label>
+        
+        {/* BOTÃO IMPORTAR TXT PARA ENTRADA/TRIAGEM */}
+        <label className="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-bold py-4 rounded-xl flex justify-center items-center transition shadow-sm cursor-pointer">
+          <FileText className="mr-2" /> Importar TXT
+          <input type="file" accept=".txt" className="hidden" onChange={handleUploadTXT} />
+        </label>
+
       </div>
       <div className="pt-2 flex gap-2">
         <input type="text" placeholder="Ou digite o IMEI/QR Code..." className="flex-1 p-4 border border-gray-300 rounded-xl bg-gray-50 text-lg" value={inputManual} onChange={e => setInputManual(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionarSerial(inputManual))} />
@@ -352,7 +383,6 @@ function TelaEquipamentos({ produtos, reload }) {
     }
   };
 
-  // IMPORTAÇÃO DE TXT
   const importarTXT = (e) => {
     const file = e.target.files[0];
     if (!file) return;
