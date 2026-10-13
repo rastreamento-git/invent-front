@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { LayoutDashboard, PackagePlus, Truck, Settings, AlertTriangle, Wrench, ClipboardList, ShoppingCart, UserPlus, Undo2, Trash2, ImagePlus, Camera, Plus, X, Search, ShieldCheck, Menu, Box } from 'lucide-react';
+import { LayoutDashboard, PackagePlus, Truck, Settings, AlertTriangle, Wrench, ClipboardList, ShoppingCart, UserPlus, Undo2, Trash2, ImagePlus, Camera, Plus, X, Search, ShieldCheck, Menu, Box, Upload } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 
@@ -65,7 +65,7 @@ export default function App() {
       alertasMatriz.forEach(a => {
         const key = `matriz-${a.categoria}-${a.quantidade}`;
         if (!notificadoRef.current.has(key)) {
-          new Notification("Alerta Matriz (Categoria)", { body: `Atenção: A categoria ${a.categoria} está com saldo baixo (${a.quantidade} restantes no total).` });
+          new Notification("Alerta Matriz", { body: `Atenção: Categoria ${a.categoria} com saldo baixo (${a.quantidade} restantes).` });
           notificadoRef.current.add(key);
         }
       });
@@ -148,7 +148,7 @@ function MenuButton({ icon, label, active, onClick }) {
 }
 
 // ==========================================
-// CÂMERA: USADA APENAS NA ENTRADA E TRIAGEM
+// CÂMERA (Somente Entrada e Triagem)
 // ==========================================
 function LeitorSeriais({ seriais, setSeriais }) {
   const [inputManual, setInputManual] = useState('');
@@ -161,7 +161,7 @@ function LeitorSeriais({ seriais, setSeriais }) {
       scanner = new Html5QrcodeScanner("reader-camera", { fps: 10, qrbox: { width: 250, height: 150 }, rememberLastUsedCamera: true }, false);
       scanner.render((decodedText) => adicionarSerial(decodedText), () => {});
     }
-    return () => { if (scanner) scanner.clear().catch(e => console.error("Erro ao limpar câmera:", e)); };
+    return () => { if (scanner) scanner.clear().catch(e => console.error(e)); };
   }, [cameraAtiva]);
 
   const adicionarSerial = (codigo) => {
@@ -236,14 +236,14 @@ function SidebarConferencia({ seriais, setSeriais, submit, disabled, labelBtn, c
 }
 
 // ==========================================
-// NOVO: SIDEBAR DE SELEÇÃO COM BUSCA E CHECKBOX
+// SIDEBAR DE SELEÇÃO DE IMEIs COM PESQUISA
 // ==========================================
 function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, produtos, tecnicos, seriais, setSeriais, submit, disabled, labelBtn, corBtn }) {
   const [busca, setBusca] = useState('');
   const [imeisDisponiveis, setImeisDisponiveis] = useState([]);
 
   useEffect(() => {
-    setSeriais([]); // Limpa ao trocar modelo ou técnico
+    setSeriais([]); 
     if (!produtoId) { setImeisDisponiveis([]); return; }
     if (statusAlvo === 'TECNICO' && !tecnicoId) { setImeisDisponiveis([]); return; }
 
@@ -264,7 +264,6 @@ function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, p
   }, [produtoId, tecnicoId, statusAlvo, produtos, tecnicos, imeisGlobais]);
 
   const imeisFiltradosPesquisa = imeisDisponiveis.filter(codigo => codigo.toLowerCase().includes(busca.toLowerCase()));
-
   const handleToggle = (codigo) => setSeriais(prev => prev.includes(codigo) ? prev.filter(c => c !== codigo) : [...prev, codigo]);
   
   const handleToggleTodos = () => {
@@ -288,8 +287,7 @@ function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, p
           type="text" 
           placeholder="Pesquisar IMEI/QR Code..." 
           className="w-full pl-10 p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
+          value={busca} onChange={e => setBusca(e.target.value)}
         />
       </div>
 
@@ -322,7 +320,6 @@ function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, p
           </div>
         )}
       </div>
-      
       <button onClick={submit} disabled={disabled} className={`w-full font-bold py-4 rounded-xl text-white transition-all shadow-md text-lg ${disabled ? 'bg-gray-300 shadow-none cursor-not-allowed' : corBtn}`}>
         {labelBtn} ({seriais.length})
       </button>
@@ -331,12 +328,12 @@ function SidebarSelecaoImeis({ imeisGlobais, produtoId, tecnicoId, statusAlvo, p
 }
 
 // ==========================================
-// TELAS DO SISTEMA
+// TELA DE EQUIPAMENTOS (COM IMPORTAÇÃO TXT E BUSCA)
 // ==========================================
-
 function TelaEquipamentos({ produtos, reload }) {
   const [nome, setNome] = useState('');
   const [categoria, setCategoria] = useState('RASTREADOR');
+  const [busca, setBusca] = useState('');
 
   const submit = async (e) => {
     e.preventDefault();
@@ -355,32 +352,75 @@ function TelaEquipamentos({ produtos, reload }) {
     }
   };
 
+  // IMPORTAÇÃO DE TXT
+  const importarTXT = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const linhas = event.target.result.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+      if (linhas.length === 0) return alert('Arquivo vazio.');
+      if (!window.confirm(`Deseja importar ${linhas.length} modelos como "${categoria}"?`)) return;
+      
+      let sucesso = 0;
+      const catExistente = produtos.find(p => p.categoria === categoria);
+      const minSugerido = catExistente ? catExistente.estoque_minimo : 5;
+
+      for (let linha of linhas) {
+        try { await api.post('/produtos', { nome: linha, categoria, estoque_minimo: minSugerido }); sucesso++; } 
+        catch (err) { console.error('Erro ao importar', linha); }
+      }
+      alert(`${sucesso} modelos importados com sucesso!`); reload();
+    };
+    reader.readAsText(file); e.target.value = '';
+  };
+
+  const produtosFiltrados = produtos.filter(p => p.nome.toLowerCase().includes(busca.toLowerCase()));
+
   return (
     <div className="flex flex-col lg:flex-row gap-8">
       <div className="w-full lg:w-1/3 bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit">
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center"><Box className="mr-2"/> Novo Modelo</h2>
         <form onSubmit={submit} className="space-y-4">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome do Modelo (Ex: NT40)</label><input required className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={nome} onChange={e => setNome(e.target.value)} /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Categoria do Aparelho</label>
             <select className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50 font-bold text-blue-800" value={categoria} onChange={e => setCategoria(e.target.value)}>
               <option value="RASTREADOR">Rastreador</option><option value="TAG">Tag</option>
             </select>
           </div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome do Modelo (Ex: NT40)</label><input required className="w-full p-4 border border-gray-300 rounded-xl bg-gray-50" value={nome} onChange={e => setNome(e.target.value)} /></div>
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl mt-2">Cadastrar Modelo</button>
         </form>
+
+        <div className="mt-8 pt-6 border-t border-gray-100">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Ou importe uma lista (.txt):</label>
+          <label className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-xl flex justify-center items-center cursor-pointer transition">
+            <Upload className="mr-2" size={20}/> Escolher Arquivo TXT
+            <input type="file" accept=".txt" className="hidden" onChange={importarTXT} />
+          </label>
+          <p className="text-xs text-gray-400 mt-2 text-center">Os modelos serão importados na categoria selecionada acima.</p>
+        </div>
       </div>
+      
       <div className="flex-1 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-800 mb-6">Modelos no Sistema</h2>
+        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+          <h2 className="text-xl font-bold text-gray-800">Modelos no Sistema</h2>
+          <div className="relative w-full md:w-64">
+            <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+            <input type="text" placeholder="Buscar modelo..." className="w-full pl-10 p-2 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white outline-none" value={busca} onChange={e => setBusca(e.target.value)} />
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left whitespace-nowrap">
             <thead><tr className="bg-gray-50 text-gray-600 text-sm"><th className="p-4 border-b">Categoria</th><th className="p-4 border-b">Nome do Modelo</th><th className="p-4 border-b text-center">Ações</th></tr></thead>
-            <tbody>{produtos.map(p => (
+            <tbody>{produtosFiltrados.map(p => (
               <tr key={p.id} className="border-b text-sm hover:bg-gray-50">
                 <td className="p-4"><span className="bg-blue-100 text-blue-800 py-1 px-2 rounded-lg font-bold text-xs">{p.categoria || 'OUTROS'}</span></td>
                 <td className="p-4 font-medium">{p.nome}</td>
                 <td className="p-4 text-center"><button onClick={() => removerEquipamento(p.id, p.nome)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button></td>
               </tr>
-            ))}</tbody>
+            ))}
+            {produtosFiltrados.length === 0 && <tr><td colSpan="3" className="p-4 text-center text-gray-500">Nenhum modelo encontrado.</td></tr>}
+            </tbody>
           </table>
         </div>
       </div>
@@ -443,18 +483,46 @@ function TelaEstorno({ produtos, tecnicos, estoque, imeisGlobais, reload }) {
   );
 }
 
+// ==========================================
+// TELA RASTREIO (COM BUSCA GLOBAL)
+// ==========================================
 function TelaRastreioTriagem({ imeisGlobais, reload }) {
-  const [seriaisRecebidos, setSeriaisRecebidos] = useState([]); const [filtroStatus, setFiltroStatus] = useState('TODOS');
+  const [seriaisRecebidos, setSeriaisRecebidos] = useState([]); 
+  const [filtroStatus, setFiltroStatus] = useState('TODOS');
+  const [busca, setBusca] = useState('');
+
   const enviarParaTriagem = async (e) => { e.preventDefault(); try { await api.post('/triagem/receber', { seriais: seriaisRecebidos }); alert('Enviado para Triagem!'); setSeriaisRecebidos([]); reload(); } catch(err) { alert('Erro.'); } };
   const avaliar = async (codigo_serial, produto_id, aprovado) => { if (window.confirm(aprovado ? "APROVAR Reuso?" : "Mandar para SUCATA?")) { await api.post('/triagem/avaliar', { codigo_serial, produto_id, aprovado }); reload(); } };
   const limparAntigos = async () => { if (window.confirm("Remover instalados +30 dias?")) { const res = await api.delete('/limpeza-instalados'); alert(`${res.data.apagados} apagados.`); reload(); } };
-  const imeisFiltrados = filtroStatus === 'TODOS' ? imeisGlobais : imeisGlobais.filter(i => i.status === filtroStatus);
+  
+  const imeisFiltrados = imeisGlobais
+    .filter(i => filtroStatus === 'TODOS' || i.status === filtroStatus)
+    .filter(i => i.codigo_serial.toLowerCase().includes(busca.toLowerCase()) || (i.produto && i.produto.toLowerCase().includes(busca.toLowerCase())));
+
   return (
     <div className="space-y-8">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-2 gap-8"><div><h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center"><ShieldCheck className="mr-2 text-orange-500"/> RMA / Triagem</h2><p className="text-sm text-gray-500 mb-6">Receba equipamentos defeituosos.</p>
       <LeitorSeriais seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} /></div><SidebarConferencia seriais={seriaisRecebidos} setSeriais={setSeriaisRecebidos} submit={enviarParaTriagem} disabled={seriaisRecebidos.length === 0} labelBtn="Mandar para Triagem" corBtn="bg-orange-500" /></div>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b border-gray-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4"><h2 className="text-xl font-bold text-gray-800 flex items-center"><Search className="mr-2"/> Rastreabilidade</h2><div className="flex items-center gap-4"><button onClick={limparAntigos} className="text-sm bg-white border px-4 py-2 rounded-md">Limpar (+30 dias)</button><select className="p-2 border rounded-md font-bold" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="TODOS">Ver Todos</option><option value="MATRIZ">Matriz</option><option value="TECNICO">Com Técnico</option><option value="INSTALADO">Instalados</option><option value="TRIAGEM">Na Triagem</option><option value="SUCATA">Sucata</option></select></div></div>
-        <div className="overflow-x-auto max-h-[500px]"><table className="w-full text-left whitespace-nowrap"><thead className="sticky top-0 bg-gray-100"><tr className="text-gray-600 text-sm"><th className="p-4">IMEI / QR</th><th className="p-4">Equipamento</th><th className="p-4">Status</th><th className="p-4">Atualização</th><th className="p-4 text-center">Ações</th></tr></thead><tbody>{imeisFiltrados.map((i) => (<tr key={i.codigo_serial} className="border-b text-sm"><td className="p-4 font-mono font-bold text-blue-600">{i.codigo_serial}</td><td className="p-4 font-medium">[{i.categoria || 'EQUIP'}] {i.produto}</td><td className="p-4">{i.status}</td><td className="p-4">{new Date(i.data_atualizacao).toLocaleString('pt-BR')}</td><td className="p-4 text-center">{i.status === 'TRIAGEM' ? (<div className="flex justify-center gap-2"><button onClick={() => avaliar(i.codigo_serial, i.produto_id, true)} className="bg-green-100 text-green-700 px-3 py-1 rounded">Aprovar Reuso</button><button onClick={() => avaliar(i.codigo_serial, i.produto_id, false)} className="bg-red-100 text-red-700 px-3 py-1 rounded">Sucata</button></div>) : '-'}</td></tr>))}</tbody></table></div></div>
+      
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center"><Search className="mr-2"/> Rastreabilidade Global</h2>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              <input type="text" placeholder="Buscar IMEI ou Modelo..." className="w-full pl-9 p-2 border border-gray-300 rounded-md text-sm outline-none" value={busca} onChange={e => setBusca(e.target.value)} />
+            </div>
+            <select className="p-2 border rounded-md font-bold text-sm" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+              <option value="TODOS">Ver Todos os Status</option><option value="MATRIZ">Matriz</option><option value="TECNICO">Com Técnico</option><option value="INSTALADO">Instalados</option><option value="TRIAGEM">Na Triagem</option><option value="SUCATA">Sucata</option>
+            </select>
+            <button onClick={limparAntigos} className="text-sm bg-white border px-4 py-2 rounded-md hover:bg-gray-100">Limpar (+30 dias)</button>
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[500px]"><table className="w-full text-left whitespace-nowrap"><thead className="sticky top-0 bg-gray-100 shadow-sm"><tr className="text-gray-600 text-sm"><th className="p-4">IMEI / QR</th><th className="p-4">Equipamento</th><th className="p-4">Status</th><th className="p-4">Atualização</th><th className="p-4 text-center">Ações</th></tr></thead><tbody>
+          {imeisFiltrados.map((i) => (<tr key={i.codigo_serial} className="border-b text-sm hover:bg-gray-50"><td className="p-4 font-mono font-bold text-blue-600">{i.codigo_serial}</td><td className="p-4 font-medium">[{i.categoria || 'EQUIP'}] {i.produto}</td><td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${i.status === 'MATRIZ' ? 'bg-blue-100 text-blue-800' : i.status === 'INSTALADO' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{i.status}</span></td><td className="p-4">{new Date(i.data_atualizacao).toLocaleString('pt-BR')}</td><td className="p-4 text-center">{i.status === 'TRIAGEM' ? (<div className="flex justify-center gap-2"><button onClick={() => avaliar(i.codigo_serial, i.produto_id, true)} className="bg-green-100 text-green-700 px-3 py-1 rounded">Aprovar Reuso</button><button onClick={() => avaliar(i.codigo_serial, i.produto_id, false)} className="bg-red-100 text-red-700 px-3 py-1 rounded">Sucata</button></div>) : '-'}</td></tr>))}
+          {imeisFiltrados.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">Nenhum registro encontrado.</td></tr>}
+        </tbody></table></div>
+      </div>
     </div>
   );
 }
@@ -478,4 +546,115 @@ function TelaDashboard({ data }) {
 }
 
 function CardStat({ titulo, valor, cor }) {
-  return (<div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100"><h4 className="text-gray-500 text-sm font-semibold uppercase">{titulo}</h4><p className={`text-4xl font-bold mt-2
+  return (<div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100"><h4 className="text-gray-500 text-sm font-semibold uppercase">{titulo}</h4><p className={`text-4xl font-bold mt-2 text-transparent bg-clip-text bg-gradient-to-r ${cor} to-black`}>{valor}</p></div>);
+}
+
+function TelaCompras({ previsao, produtos }) {
+  const comprasPorCategoria = {};
+  previsao.forEach(prev => {
+    const prod = produtos.find(p => p.id === prev.id);
+    const cat = prod ? (prod.categoria || 'RASTREADOR') : 'RASTREADOR';
+    if (!comprasPorCategoria[cat]) { comprasPorCategoria[cat] = { categoria: cat, cmd: 0, ponto_pedido: 0, quantidade_matriz: 0, sugerido: 0 }; }
+    comprasPorCategoria[cat].cmd += Number(prev.cmd || 0);
+    comprasPorCategoria[cat].ponto_pedido += Number(prev.ponto_pedido || 0);
+    comprasPorCategoria[cat].quantidade_matriz += Number(prev.quantidade_matriz || 0);
+    comprasPorCategoria[cat].sugerido += Number(prev.sugerido || 0);
+  });
+  const listaCompras = Object.values(comprasPorCategoria).map(cat => ({ ...cat, cmd: cat.cmd.toFixed(2), status: cat.quantidade_matriz <= cat.ponto_pedido ? 'URGENTE' : 'OK' }));
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b bg-gradient-to-r from-blue-50 to-white"><h2 className="text-2xl font-bold flex items-center"><ShoppingCart className="mr-2 text-blue-600"/> Inteligência de Compras (Por Categoria)</h2></div>
+      <div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-sm"><th className="p-4 border-b">Categoria Agrupada</th><th className="p-4 border-b text-center">Média/Dia</th><th className="p-4 border-b text-center">Ponto de Pedido</th><th className="p-4 border-b text-center">Estoque Atual</th><th className="p-4 border-b text-center">Sugestão de Compra</th></tr></thead><tbody>{listaCompras.map((c, i) => (<tr key={i} className="border-b text-sm"><td className="p-4 font-bold text-blue-800">{c.categoria}</td><td className="p-4 text-center">{c.cmd}</td><td className="p-4 text-center font-bold text-orange-600">{c.ponto_pedido}</td><td className={`p-4 text-center font-bold ${c.status === 'URGENTE' ? 'text-red-600' : 'text-green-600'}`}>{c.quantidade_matriz}</td><td className="p-4 text-center"><span className={`py-1 px-3 rounded font-bold text-sm ${c.sugerido > 0 ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{c.sugerido > 0 ? `Comprar ${c.sugerido}` : 'Estoque Adequado'}</span></td></tr>))}{listaCompras.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">Sem dados de movimentação.</td></tr>}</tbody></table></div>
+    </div>
+  );
+}
+
+function TelaConfiguracao({ produtos, tecnicos, reload }) {
+  const [tipo, setTipo] = useState('CATEGORIA'); const [id, setId] = useState('RASTREADOR'); const [limite, setLimite] = useState('');
+  const submit = async (e) => {
+    e.preventDefault();
+    if (tipo === 'CATEGORIA') {
+      const prodsDaCategoria = produtos.filter(p => p.categoria === id);
+      if (prodsDaCategoria.length === 0) return alert('Cadastre pelo menos 1 modelo desta categoria primeiro.');
+      for (let p of prodsDaCategoria) { await api.put('/configurar-alerta', { tipo: 'PRODUTO', id: p.id, novo_limite: Number(limite) }); }
+    } else { await api.put('/configurar-alerta', { tipo: 'TECNICO', id, novo_limite: Number(limite) }); }
+    alert('Regra de Alerta Salva!'); setLimite(''); reload();
+  };
+  return (
+    <div className="bg-white p-8 rounded-xl shadow-sm max-w-lg border border-gray-100"><h2 className="text-2xl font-bold mb-6 flex items-center"><Settings className="mr-2"/> Configuração de Alertas</h2>
+      <form onSubmit={submit} className="space-y-4">
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">Onde aplicar o alerta?</label><select className="w-full p-4 border rounded-xl" value={tipo} onChange={e => {setTipo(e.target.value); setId(e.target.value === 'CATEGORIA' ? 'RASTREADOR' : '');}}><option value="CATEGORIA">Geral da Matriz (Por Categoria)</option><option value="TECNICO">Estoque do Técnico</option></select></div>
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">Selecione o Alvo</label>{tipo === 'CATEGORIA' ? (<select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}><option value="RASTREADOR">Total de Rastreadores</option><option value="TAG">Total de Tags</option></select>) : (<select required className="w-full p-4 border rounded-xl" value={id} onChange={e => setId(e.target.value)}><option value="">Selecione o Técnico...</option>{tecnicos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select>)}</div>
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">Quantidade Mínima Exigida</label><input required type="number" min="0" placeholder="Ex: 50" className="w-full p-4 border rounded-xl" value={limite} onChange={e => setLimite(e.target.value)} /></div>
+        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl">Salvar Nova Regra</button>
+      </form>
+    </div>
+  );
+}
+
+// ==========================================
+// TELA TÉCNICOS (COM IMPORTAÇÃO TXT E BUSCA)
+// ==========================================
+function TelaTecnicos({ tecnicos, estoque, reload }) {
+  const [nome, setNome] = useState('');
+  const [busca, setBusca] = useState('');
+
+  const submit = async (e) => { e.preventDefault(); await api.post('/tecnicos', { nome }); alert('Cadastrado!'); setNome(''); reload(); };
+  const remover = async (id, nomeTec) => { if (estoque.some(et => et.tecnico_id === id && et.quantidade > 0)) return alert(`Técnico possui itens.`); if (window.confirm(`Remover ${nomeTec}?`)) { await api.delete(`/tecnicos/${id}`); reload(); } };
+
+  const importarTXT = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const linhas = event.target.result.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+      if (linhas.length === 0) return alert('Arquivo vazio.');
+      if (!window.confirm(`Deseja importar ${linhas.length} técnicos?`)) return;
+      
+      let sucesso = 0;
+      for (let linha of linhas) {
+        try { await api.post('/tecnicos', { nome: linha }); sucesso++; } 
+        catch (err) { console.error('Erro ao importar', linha); }
+      }
+      alert(`${sucesso} técnicos importados com sucesso!`); reload();
+    };
+    reader.readAsText(file); e.target.value = '';
+  };
+
+  const tecnicosFiltrados = tecnicos.filter(t => t.nome.toLowerCase().includes(busca.toLowerCase()));
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit">
+        <h2 className="text-2xl font-bold mb-6 flex items-center"><UserPlus className="mr-2"/> Novo Técnico</h2>
+        <form onSubmit={submit} className="space-y-4">
+          <input required placeholder="Nome do Instalador" className="w-full p-4 border rounded-xl" value={nome} onChange={e => setNome(e.target.value)}/>
+          <button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl">Cadastrar Manulamente</button>
+        </form>
+        <div className="mt-8 pt-6 border-t border-gray-100">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Ou importe uma lista (.txt):</label>
+          <label className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-xl flex justify-center items-center cursor-pointer transition">
+            <Upload className="mr-2" size={20}/> Escolher Arquivo TXT
+            <input type="file" accept=".txt" className="hidden" onChange={importarTXT} />
+          </label>
+        </div>
+      </div>
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+          <h2 className="text-xl font-bold text-gray-800">Equipe</h2>
+          <div className="relative w-full md:w-64">
+            <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+            <input type="text" placeholder="Buscar técnico..." className="w-full pl-10 p-2 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white outline-none" value={busca} onChange={e => setBusca(e.target.value)} />
+          </div>
+        </div>
+        <ul className="divide-y">{tecnicosFiltrados.map(t => (<li key={t.id} className="py-4 font-medium flex justify-between">{t.nome}<button onClick={() => remover(t.id, t.nome)} className="text-red-400 hover:text-red-600"><Trash2 size={20} /></button></li>))}
+        {tecnicosFiltrados.length === 0 && <li className="py-4 text-gray-500 text-center">Nenhum técnico encontrado.</li>}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function TelaLogs({ logs }) {
+  return (<div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div className="p-6 border-b"><h2 className="text-2xl font-bold flex items-center"><ClipboardList className="mr-2"/> Histórico</h2></div><div className="overflow-x-auto"><table className="w-full text-left whitespace-nowrap"><thead><tr className="bg-gray-50 text-sm"><th className="p-4">Data</th><th className="p-4">Ação</th><th className="p-4">Equipamento</th><th className="p-4">Técnico</th><th className="p-4 text-center">Quantidade</th></tr></thead><tbody>{logs.map((log) => (<tr key={log.id} className="border-b text-sm"><td className="p-4">{new Date(log.data).toLocaleString('pt-BR')}</td><td className="p-4 font-bold">{log.tipo}</td><td className="p-4">{log.produto}</td><td className="p-4">{log.tecnico || '-'}</td><td className="p-4 text-center font-bold">{log.quantidade}</td></tr>))}</tbody></table></div></div>);
+}
