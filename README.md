@@ -1,16 +1,28 @@
-# React + Vite
+# Inventário · Interface original
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Interface web original do sistema de inventário de rastreadores e TAGs, desenvolvida com React e Vite. Este repositório corresponde à estrutura anterior, na qual frontend e backend eram mantidos separadamente.
 
-Currently, two official plugins are available:
+A evolução atual do **Estoque Pro** está em [rastreamento-git/inventario-v2](https://github.com/rastreamento-git/inventario-v2), com interface e API organizadas em `invent-front/` e `invent-back/`. A integração com o ecossistema ZenTracking é mantida nesse repositório atual.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Desenvolvimento desta versão
 
-## React Compiler
+```bash
+npm ci --include=dev
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run lint
+npm run build
+```
 
-## Expanding the Oxlint configuration
+A compilação gera a pasta `dist`. A configuração da API deve corresponder ao backend usado por esta versão. Não misture arquivos de versões diferentes sem conferir os respectivos contratos.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Repositórios relacionados
+
+- [API original do inventário](https://github.com/rastreamento-git/invent-back)
+- [Estoque Pro atual](https://github.com/rastreamento-git/inventario-v2)
+- [ZenControl](https://github.com/rastreamento-git/zencontrol)
+- [ZenField](https://github.com/rastreamento-git/zenfield)
+
+Desenvolvido por Victor Rodrigues.

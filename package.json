@@ -28,5 +28,6 @@
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.0"
-  }
+  },
+  "description": "Interface original do inventário de rastreadores e TAGs, anterior ao Estoque Pro integrado."
 }
